@@ -35,7 +35,7 @@ Video Digest Companion 是 Windows 桌面伴生程序，负责本地媒体播放
   "mode": "both",
   "language": "",
   "region": { "x": 0.05, "y": 0.76, "width": 0.9, "height": 0.18 },
-  "modelPaths": { "ocr": "...", "asr": "..." }
+  "modelPaths": { "asr": "..." }
 }
 ```
 

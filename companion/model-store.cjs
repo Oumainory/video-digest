@@ -17,13 +17,6 @@ const MODEL_CATALOG = Object.freeze([
     fileName: "model.bin",
     backend: "whisper.cpp",
   },
-  {
-    id: "ocr-mobile",
-    kind: "ocr",
-    label: "PaddleOCR 视频字幕",
-    fileName: "model.bin",
-    backend: "VideOCR + PaddleOCR",
-  },
 ]);
 
 function safeFilePart(value, fallback = "model.bin") {

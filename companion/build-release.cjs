@@ -82,7 +82,7 @@ function prepareEngine() {
 function prepareModels() {
   const source = requireFile(modelInput, "VIDEO_DIGEST_MODEL_SOURCES_FILE");
   const values = readJson(source, "模型来源清单");
-  for (const id of ["whisper-multilingual", "ocr-mobile"]) validateModelEntry(id, values[id]);
+  for (const id of ["whisper-multilingual"]) validateModelEntry(id, values[id]);
   const destination = path.join(buildDir, "model-sources.json");
   fs.writeFileSync(destination, `${JSON.stringify(values, null, 2)}\n`, "utf8");
   return destination;

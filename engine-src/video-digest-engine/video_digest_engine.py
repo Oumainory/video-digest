@@ -304,8 +304,10 @@ def language_code(value: Any, default: str = "auto") -> str:
     return aliases.get(text, text.lower() or default)
 
 
-def ocr_environment(model: Path) -> dict[str, str]:
+def ocr_environment(model: Path | None) -> dict[str, str]:
     environment = os.environ.copy()
+    if model is None:
+        return environment
     # PaddleX/PaddleOCR versions use one of these cache variables. Setting all
     # of them is harmless and keeps model files inside Video Digest's cache.
     environment["PADDLE_PDX_CACHE_HOME"] = str(model)
@@ -316,7 +318,8 @@ def ocr_environment(model: Path) -> dict[str, str]:
 
 def run_ocr(config: dict[str, Any], media: Path, work: Path) -> list[dict[str, Any]]:
     cli = executable("videocr-cli.exe", "videocr_cli.exe", "videocr-cli")
-    model = path_value(config.get("modelPaths", {}).get("ocr"), "OCR 模型")
+    ocr_path = config.get("modelPaths", {}).get("ocr")
+    model = path_value(ocr_path, "OCR 模型") if ocr_path else None
     width, height = dimensions(config, media)
     crop_x, crop_y, crop_width, crop_height = pixels(config.get("region", {}), width, height)
     output = work / "ocr.srt"

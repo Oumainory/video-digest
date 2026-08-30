@@ -44,7 +44,7 @@ Windows 桌面伴生程序
 1. 从 Chrome Web Store 或 Edge Add-ons 安装扩展。
 2. 在扩展的本地识别卡片中下载 Windows 伴生程序。
 3. 安装伴生程序并重新打开扩展。
-4. 首次使用本地识别时下载 OCR 或 ASR 模型。
+4. 首次使用本地识别时下载 ASR 模型（OCR 模型已包含在伴生程序内）。
 
 伴生程序安装包和模型包发布在本仓库的 [GitHub Releases](https://github.com/Oumainory/video-digest/releases)，不需要下载或克隆整个源代码仓库。
 
