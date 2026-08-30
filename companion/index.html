@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video Digest Companion</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">VIDEO DIGEST</p>
+      <h1>本地识别</h1>
+      <p class="subtitle">视频 OCR · 音频 ASR · 全程本地处理</p>
+    </div>
+    <div class="header-status">
+      <span id="connectionBadge" class="status-badge">独立使用</span>
+      <span id="versionText" class="muted"></span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="workspace">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">STEP 1</p>
+          <h2>选择媒体</h2>
+        </div>
+        <label class="file-button primary-button" for="mediaInput">选择视频或音频</label>
+        <input id="mediaInput" type="file" accept="video/*,audio/*,.mkv,.webm,.mov,.mp4,.mp3,.wav,.m4a">
+      </div>
+
+      <div id="emptyMedia" class="empty-media">
+        <div class="empty-icon">＋</div>
+        <p>把本地视频或音频交给桌面软件</p>
+        <span>视频会先进入播放器校准字幕区域，音频可直接开始 ASR。</span>
+      </div>
+
+      <div id="mediaWorkspace" hidden>
+        <div class="media-meta">
+          <div>
+            <p id="mediaName" class="media-name"></p>
+            <p id="mediaInfo" class="muted"></p>
+          </div>
+          <button id="replaceMediaBtn" class="text-button" type="button">更换文件</button>
+        </div>
+
+        <div id="playerStage" class="player-stage">
+          <video id="videoPlayer" controls playsinline preload="metadata"></video>
+          <audio id="audioPlayer" controls preload="metadata" hidden></audio>
+          <div id="regionBox" class="region-box" hidden aria-label="字幕识别区域">
+            <span class="region-label">字幕识别区域</span>
+            <button class="resize-handle nw" data-handle="nw" type="button" aria-label="向左上调整"></button>
+            <button class="resize-handle ne" data-handle="ne" type="button" aria-label="向右上调整"></button>
+            <button class="resize-handle sw" data-handle="sw" type="button" aria-label="向左下调整"></button>
+            <button class="resize-handle se" data-handle="se" type="button" aria-label="向右下调整"></button>
+          </div>
+          <div id="audioPlaceholder" class="audio-placeholder" hidden>
+            <div class="audio-icon">♫</div>
+            <p>这是一个音频文件</p>
+            <span>无需调整字幕区域，选择 ASR 后即可识别。</span>
+          </div>
+        </div>
+
+        <div class="region-tools">
+          <div>
+            <p class="control-label">字幕位置</p>
+            <div class="preset-row" role="group" aria-label="字幕位置预设">
+              <button class="preset-button active" data-preset="bottom" type="button">底部</button>
+              <button class="preset-button" data-preset="top" type="button">顶部</button>
+              <button class="preset-button" data-preset="fullBottom" type="button">全宽底部</button>
+              <button class="preset-button" data-preset="center" type="button">中间</button>
+              <button class="preset-button" data-preset="custom" type="button">自定义</button>
+            </div>
+          </div>
+          <p id="regionHint" class="muted region-hint">拖动边框或四角手柄，覆盖整段视频中的字幕。</p>
+        </div>
+
+        <div class="recognition-controls">
+          <div class="control-group">
+            <label class="control-label" for="recognitionMode">识别内容</label>
+            <select id="recognitionMode">
+              <option value="both">OCR + ASR（两条独立字幕轨道）</option>
+              <option value="ocr">画面字幕 OCR</option>
+              <option value="asr">语音 ASR</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label class="control-label" for="languageInput">识别语言</label>
+            <input id="languageInput" type="text" value="自动检测" placeholder="例如：中文、English">
+          </div>
+          <button id="startButton" class="primary-button start-button" type="button" disabled>开始识别</button>
+        </div>
+      </div>
+
+      <div id="taskCard" class="task-card" hidden>
+        <div class="task-head">
+          <div>
+            <p class="eyebrow">CURRENT TASK</p>
+            <h2 id="taskTitle">正在识别</h2>
+          </div>
+          <span id="taskPercent" class="task-percent">0%</span>
+        </div>
+        <p id="taskMessage" class="muted"></p>
+        <div class="progress-track"><div id="taskProgress" class="progress-value"></div></div>
+        <div class="task-actions">
+          <button id="pauseButton" class="secondary-button" type="button">暂停</button>
+          <button id="cancelButton" class="danger-button" type="button">取消任务</button>
+          <button id="retryButton" class="secondary-button" type="button" hidden>重试</button>
+        </div>
+      </div>
+
+      <section id="taskHistory" class="task-history" hidden>
+        <div class="section-head compact">
+          <div>
+            <p class="eyebrow">TASKS</p>
+            <h2>任务历史</h2>
+          </div>
+        </div>
+        <div id="taskHistoryList" class="task-history-list"></div>
+      </section>
+
+      <section id="resultCard" class="result-card" hidden>
+        <div class="section-head compact">
+          <div>
+            <p class="eyebrow">RESULT</p>
+            <h2>识别结果</h2>
+          </div>
+          <span id="resultMeta" class="muted"></span>
+        </div>
+        <div id="trackTabs" class="track-tabs"></div>
+        <div id="resultPreview" class="result-preview"></div>
+        <div class="export-row">
+          <span class="muted">下载字幕</span>
+          <button id="saveResultButton" class="secondary-button" type="button" disabled>保存编辑</button>
+          <button class="export-button" data-format="srt" type="button">SRT</button>
+          <button class="export-button" data-format="ass" type="button">ASS</button>
+          <button class="export-button" data-format="vtt" type="button">VTT</button>
+        </div>
+      </section>
+
+      <section id="resultHistory" class="result-history" hidden>
+        <div class="section-head compact">
+          <div>
+            <p class="eyebrow">HISTORY</p>
+            <h2>历史结果</h2>
+          </div>
+        </div>
+        <div id="resultHistoryList" class="result-history-list"></div>
+      </section>
+    </section>
+
+    <aside class="sidebar">
+      <section class="side-card">
+        <div class="section-head compact">
+          <div>
+            <p class="eyebrow">MODELS</p>
+            <h2>模型</h2>
+          </div>
+          <button id="refreshModelsButton" class="text-button" type="button">刷新</button>
+        </div>
+        <p id="modelHint" class="muted side-hint">按需下载，使用后可以卸载。</p>
+        <div id="modelList" class="model-list"></div>
+      </section>
+
+      <section class="side-card info-card">
+        <p class="eyebrow">PRIVACY</p>
+        <h2>文件留在本机</h2>
+        <p class="muted">视频、音频和识别结果不会上传云端。扩展只在你从扩展打开软件时接收回传字幕。</p>
+      </section>
+    </aside>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="renderer.js"></script>
+</body>
+</html>

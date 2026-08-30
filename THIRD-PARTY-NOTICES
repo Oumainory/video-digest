@@ -1,0 +1,83 @@
+Video Digest — Third-Party Notices
+==================================
+
+This file records third-party software and source material used by, adapted
+by, or referenced by Video Digest. Copyright in each component remains with
+its original holder. The MIT license in the repository root applies to the
+original work by Oumainory and does not replace a third-party component's
+license.
+
+1. youtube-digest
+------------------
+Repository: https://github.com/zarazhangrui/youtube-digest
+Copyright: Copyright (c) 2026 Zara Zhang
+License: MIT
+
+Video Digest adapts the extension structure, transcript-learning interaction,
+prompt conventions, and selected source/prompt material from this project.
+The original MIT copyright and permission notice must remain with adapted
+files and distributions.
+
+2. bilibili-digest
+------------------
+Repository: https://github.com/biuworks/bilibili-digest
+Product reference: https://chromewebstore.google.com/detail/digest-for-bilibili/cfndfabkpfgihcgknbgfnkjlmndhhmfc
+Copyright: Copyright (c) 2026 k1234567
+Portions copyright (c) 2026 Zara Zhang (youtube-digest)
+License: MIT
+
+The Chrome Web Store page is recorded as a product reference. The source
+license is taken from the corresponding public repository, not inferred from
+the store listing alone.
+
+3. VideOCR
+-----------
+Repository: https://github.com/timminator/VideOCR
+License: MIT
+Copyright in the upstream license: Copyright (c) 2019 Yi Ge
+
+Video Digest uses the local video-subtitle OCR workflow as an integration
+reference. The selected backend is the local PaddleOCR path; the Google Lens
+hybrid path is not used. If VideOCR source code or its CLI is redistributed,
+its original license and notices must be included in the desktop package.
+
+4. PaddleOCR
+-------------
+Repository: https://github.com/PaddlePaddle/PaddleOCR
+Copyright: Copyright (c) 2016 PaddlePaddle Authors. All Rights Reserved.
+License: Apache License 2.0
+
+PaddleOCR is the selected local OCR inference backend. A copy of the Apache
+License 2.0 and any upstream NOTICE file that accompanies the exact pinned
+version must be distributed with any desktop engine containing it.
+
+5. whisper.cpp
+--------------
+Repository: https://github.com/ggml-org/whisper.cpp
+Copyright: Copyright (c) 2023-2026 The ggml authors
+License: MIT
+
+whisper.cpp is the selected native ASR backend. The exact commit and build
+options used for a release must be recorded in the release artifact manifest.
+
+6. FFmpeg and media dependencies
+---------------------------------
+If FFmpeg or FFmpeg libraries are bundled in a release, the exact build,
+license mode (LGPL or GPL), source offer, and corresponding notices must be
+recorded here and shipped with the installer. The release process must not
+silently bundle a GPL build into an otherwise MIT-described product.
+
+7. Models and generated assets
+------------------------------
+ASR and OCR model weights are separate works. Their URLs, versions, SHA-256
+values, authors, and licenses must be recorded in the model catalog and in
+the release's generated notices. A model's license is never inferred from
+the license of its inference library.
+
+Attribution policy
+------------------
+Before adding or updating a third-party component, contributors must pin a
+version or commit, inspect its license and NOTICE files, record whether source
+or binaries are redistributed, and update this file plus the release license
+bundle. Components with no clear redistribution license must not be copied or
+bundled until permission is obtained.

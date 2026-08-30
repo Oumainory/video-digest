@@ -1,0 +1,66 @@
+{
+  "name": "video-digest-companion",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "author": "Oumainory",
+  "homepage": "https://github.com/Oumainory/video-digest",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Oumainory/video-digest.git"
+  },
+  "description": "Video Digest desktop companion for local OCR and ASR",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "prepare-release": "node build-release.cjs",
+    "dist": "npm run prepare-release && electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.video_digest.companion",
+    "productName": "Video Digest Companion",
+    "files": [
+      "**/*",
+      "!build{,/**/*}"
+    ],
+    "extraResources": [
+      {
+        "from": "../lib/companion-protocol.js",
+        "to": "lib/companion-protocol.js"
+      },
+      {
+        "from": "build/engine",
+        "to": "engine"
+      },
+      {
+        "from": "build/model-sources.json",
+        "to": "model-sources.json"
+      },
+      {
+        "from": "../THIRD-PARTY-NOTICES",
+        "to": "THIRD-PARTY-NOTICES"
+      },
+      {
+        "from": "install-host.ps1",
+        "to": "native-host/install-host.ps1"
+      },
+      {
+        "from": "native-host-manifest.example.json",
+        "to": "native-host/native-host-manifest.example.json"
+      }
+    ],
+    "win": {
+      "target": ["nsis"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.generated.nsh"
+    }
+  }
+}

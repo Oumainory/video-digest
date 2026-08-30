@@ -1,0 +1,21 @@
+{
+  "whisper-multilingual": {
+    "url": "https://github.com/Oumainory/video-digest/releases/latest/download/whisper-multilingual.bin",
+    "fileName": "whisper-multilingual.bin",
+    "version": "0.1.0",
+    "sha256": "",
+    "sizeBytes": 0,
+    "license": "Verify the exact model license before release",
+    "licenseUrl": ""
+  },
+  "ocr-mobile": {
+    "url": "https://github.com/Oumainory/video-digest/releases/latest/download/ocr-paddle-windows-x64.zip",
+    "archive": "ocr-paddle-windows-x64.zip",
+    "entrypoint": "models",
+    "version": "0.1.0",
+    "sha256": "",
+    "sizeBytes": 0,
+    "license": "Apache-2.0 (verify exact model files before release)",
+    "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0"
+  }
+}

@@ -1,0 +1,72 @@
+# Dependencies
+node_modules/
+companion/node_modules/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.pyc
+
+# Build and release output
+dist/
+build/
+companion/build/
+companion/dist/
+engine-build/
+*.asar
+*.msi
+*.dmg
+*.pkg
+
+# Local engine binaries and model payloads
+engine-src/**/bin/
+engine-src/**/models/
+engine-src/**/artifacts/
+companion/engine/*.exe
+companion/engine/*.dll
+companion/engine/*.bin
+companion/engine/*.zip
+companion/model-sources.json
+**/*.onnx
+**/*.safetensors
+**/*.gguf
+**/*.ggml
+**/*.pt
+**/*.pdparams
+
+# Local media, task data, and logs
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.avi
+*.mp3
+*.wav
+*.m4a
+*.flac
+*.srt
+*.ass
+*.vtt
+*.log
+*.tmp
+*.download
+.tasks/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.local.json
+secrets/
+
+# Operating-system/editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# Test artifacts
+coverage/
+test-results/
+.nyc_output/

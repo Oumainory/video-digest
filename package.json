@@ -1,0 +1,19 @@
+{
+  "name": "bilibili-digest",
+  "version": "0.4.0",
+  "private": true,
+  "license": "MIT",
+  "author": "Oumainory",
+  "homepage": "https://github.com/Oumainory/video-digest",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Oumainory/video-digest.git"
+  },
+  "description": "Turn Bilibili videos into learning resources: transcripts, punctuation repair, bilingual subtitles, AI overviews, and timestamped notes. Bilibili port of youtube-digest.",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/check.cjs",
+    "package": "bash scripts/package.sh",
+    "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1"
+  }
+}

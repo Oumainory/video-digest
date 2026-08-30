@@ -1,0 +1,98 @@
+name: Release Windows companion
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    env:
+      VIDEO_DIGEST_ENGINE_BUNDLE_URL: ${{ vars.VIDEO_DIGEST_ENGINE_BUNDLE_URL }}
+      VIDEO_DIGEST_MODEL_SOURCES_JSON: ${{ secrets.VIDEO_DIGEST_MODEL_SOURCES_JSON }}
+      VIDEO_DIGEST_CHROME_EXTENSION_ID: ${{ secrets.VIDEO_DIGEST_CHROME_EXTENSION_ID }}
+      VIDEO_DIGEST_EDGE_EXTENSION_ID: ${{ secrets.VIDEO_DIGEST_EDGE_EXTENSION_ID }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Python for adapter compilation
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install companion and adapter build dependencies
+        shell: pwsh
+        run: |
+          npm ci --prefix companion
+          python -m pip install --disable-pip-version-check psutil nuitka
+
+      - name: Download pinned backend bundle
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VIDEO_DIGEST_ENGINE_BUNDLE_URL)) {
+            throw "Repository variable VIDEO_DIGEST_ENGINE_BUNDLE_URL is required. It must point to a reviewed bundle containing videocr-cli.exe, whisper-cli.exe, and ffmpeg.exe."
+          }
+          $bundle = Join-Path $env:RUNNER_TEMP "video-digest-engine-bundle.zip"
+          Invoke-WebRequest -Uri $env:VIDEO_DIGEST_ENGINE_BUNDLE_URL -OutFile $bundle
+          $bundleDir = Join-Path $env:RUNNER_TEMP "video-digest-engine-bundle"
+          Expand-Archive -LiteralPath $bundle -DestinationPath $bundleDir -Force
+          "VIDEO_DIGEST_VIDEOCR_CLI=$bundleDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VIDEO_DIGEST_WHISPER_CLI=$bundleDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VIDEO_DIGEST_FFMPEG=$bundleDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          if (Test-Path -LiteralPath (Join-Path $bundleDir "ffprobe.exe")) {
+            "VIDEO_DIGEST_FFPROBE=$bundleDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
+
+      - name: Build Video Digest engine adapter
+        shell: pwsh
+        run: .\engine-src\build-windows.ps1 -OutputDirectory .\engine-build
+
+      - name: Prepare release model catalog
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VIDEO_DIGEST_MODEL_SOURCES_JSON)) {
+            throw "Secret VIDEO_DIGEST_MODEL_SOURCES_JSON is required and must contain real HTTPS URLs, versions, sizes, SHA-256 values, and licenses."
+          }
+          $encoding = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText((Join-Path $env:GITHUB_WORKSPACE "release-model-sources.json"), $env:VIDEO_DIGEST_MODEL_SOURCES_JSON, $encoding)
+          "VIDEO_DIGEST_ENGINE_DIR=$env:GITHUB_WORKSPACE\engine-build" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VIDEO_DIGEST_MODEL_SOURCES_FILE=$env:GITHUB_WORKSPACE\release-model-sources.json" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build desktop installer
+        shell: pwsh
+        run: npm run dist --prefix companion
+
+      - name: Build extension package
+        shell: pwsh
+        env:
+          VIDEO_DIGEST_COMPANION_DOWNLOAD_URL: https://github.com/Oumainory/video-digest/releases/latest/download/Video-Digest-Companion-Setup.exe
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VIDEO_DIGEST_CHROME_EXTENSION_ID)) { throw "Secret VIDEO_DIGEST_CHROME_EXTENSION_ID is required." }
+          if ([string]::IsNullOrWhiteSpace($env:VIDEO_DIGEST_EDGE_EXTENSION_ID)) { throw "Secret VIDEO_DIGEST_EDGE_EXTENSION_ID is required." }
+          npm run package:windows
+
+      - name: Run final checks
+        shell: pwsh
+        run: |
+          npm test
+          npm run check
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            companion/dist/*.exe
+            dist/*.zip
+            THIRD-PARTY-NOTICES

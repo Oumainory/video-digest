@@ -1,0 +1,29 @@
+{
+  "executable": "video-digest-engine.exe",
+  "args": ["--config", "{{configPath}}"],
+  "protocol": "jsonl-v1",
+  "supportsPause": true,
+  "control": {
+    "transport": "stdin",
+    "message": "{\"type\":\"control\",\"action\":\"pause|resume\"}"
+  },
+  "events": {
+    "progress": {
+      "type": "progress",
+      "done": 0,
+      "total": 0,
+      "phase": "ocr|asr",
+      "message": ""
+    },
+    "result": {
+      "type": "result",
+      "result": {
+        "sourceId": "",
+        "tracks": {
+          "ocr": { "language": "", "segments": [] },
+          "asr": { "language": "", "segments": [] }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "com.video_digest.companion",
+  "description": "Video Digest Companion Native Messaging host",
+  "path": "C:\\Program Files\\Video Digest Companion\\Video Digest Companion.exe",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://REPLACE_WITH_EXTENSION_ID/"
+  ]
+}
