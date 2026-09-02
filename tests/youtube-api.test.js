@@ -5,6 +5,7 @@ const YOUTUBE = require("../lib/youtube-api.js");
 
 test("识别 YouTube 播放页和短链接的视频号", () => {
   assert.equal(YOUTUBE.parseVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), "dQw4w9WgXcQ");
+  assert.equal(YOUTUBE.parseVideoId("https://m.youtube.com/watch?v=dQw4w9WgXcQ"), "dQw4w9WgXcQ");
   assert.equal(YOUTUBE.parseVideoId("https://youtu.be/dQw4w9WgXcQ?t=2"), "dQw4w9WgXcQ");
   assert.equal(YOUTUBE.parseVideoId("dQw4w9WgXcQ"), "dQw4w9WgXcQ");
   assert.equal(YOUTUBE.parseVideoId("https://example.com/watch?v=dQw4w9WgXcQ"), null);

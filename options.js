@@ -23,9 +23,11 @@ const presetHint = document.getElementById("presetHint");
 const endpointPreview = document.getElementById("endpointPreview");
 const modelsHint = document.getElementById("modelsHint");
 const modelOptions = document.getElementById("modelOptions");
+const modelFilter = document.getElementById("modelFilter");
 const statusEl = document.getElementById("status");
 
 let statusTimer = null;
+let availableModels = [];
 
 function showStatus(text, { sticky = false } = {}) {
   statusEl.textContent = text;
@@ -107,15 +109,22 @@ function applyPreset(presetId) {
 }
 
 function clearModelOptions() {
+  availableModels = [];
+  modelFilter.value = "";
+  modelFilter.hidden = true;
   modelOptions.textContent = "";
   modelOptions.value = "";
   modelOptions.hidden = true;
   fields.model.hidden = false;
 }
 
-function showModelOptions(models) {
-  clearModelOptions();
+function renderModelOptions() {
   const currentModel = fields.model.value;
+  const query = modelFilter.value.trim().toLocaleLowerCase();
+  const models = availableModels.filter((id) =>
+    !query || id.toLocaleLowerCase().includes(query),
+  );
+  modelOptions.textContent = "";
 
   // 手填值不在服务端列表里时仍保留为当前选项，不替用户擅自改配置。
   if (currentModel && !models.includes(currentModel)) {
@@ -132,6 +141,14 @@ function showModelOptions(models) {
     modelOptions.appendChild(option);
   }
 
+  if (!models.length && !currentModel) {
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "没有匹配的模型";
+    empty.disabled = true;
+    modelOptions.appendChild(empty);
+  }
+
   const manual = document.createElement("option");
   manual.value = "";
   manual.textContent = "手动填写模型名称…";
@@ -140,7 +157,13 @@ function showModelOptions(models) {
   modelOptions.value = currentModel;
   fields.model.hidden = true;
   modelOptions.hidden = false;
-  modelOptions.focus();
+}
+
+function showModelOptions(models) {
+  availableModels = [...new Set((models || []).map((id) => String(id).trim()).filter(Boolean))];
+  modelFilter.hidden = false;
+  renderModelOptions();
+  modelFilter.focus();
 }
 
 async function load() {
@@ -418,6 +441,8 @@ modelOptions.addEventListener("change", () => {
   fields.model.hidden = false;
   fields.model.focus();
 });
+
+modelFilter.addEventListener("input", renderModelOptions);
 
 document.getElementById("saveBtn").addEventListener("click", save);
 document.getElementById("fetchModelsBtn").addEventListener("click", fetchModels);

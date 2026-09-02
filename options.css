@@ -228,6 +228,12 @@ input::placeholder {
   display: block;
 }
 
+.model-filter {
+  width: 100%;
+  margin-bottom: 6px;
+  box-sizing: border-box;
+}
+
 .model-control > [hidden] {
   display: none;
 }

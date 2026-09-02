@@ -1052,6 +1052,29 @@ button {
 }
 
 /* 视频问答 */
+.qa-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+
+.qa-mode-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.qa-mode-select {
+  min-width: 132px;
+  padding: 5px 8px;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 12px;
+}
+
 .qa-input-row {
   display: flex;
   gap: 8px;
@@ -1084,6 +1107,12 @@ button {
   align-items: center;
   gap: 8px;
   color: var(--text-muted);
+}
+
+.qa-mode-badge {
+  margin-left: 6px;
+  color: var(--accent-strong);
+  font-size: 11px;
 }
 
 .spinner-inline {

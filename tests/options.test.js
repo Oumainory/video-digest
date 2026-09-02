@@ -210,6 +210,21 @@ test("拉取后在原位置用下拉框替换输入框，不显示两套重复�
   assert.equal(ctx.el("aiModel").focused, true);
 });
 
+test("拉取模型后可以通过文本框筛选下拉列表", async () => {
+  const ctx = await createContext();
+  await ctx.el("fetchModelsBtn").dispatch("click");
+
+  const filter = ctx.el("modelFilter");
+  assert.equal(filter.hidden, false);
+  filter.value = "model-b";
+  await filter.dispatch("input");
+  assert.deepEqual(
+    ctx.el("modelOptions").children.map((option) => option.value),
+    ["already-filled-model", "model-b", ""],
+  );
+  assert.equal(ctx.el("modelOptions").hidden, false);
+});
+
 test("设置页可以导出学习资料备份，且不含密钥", async () => {
   const html = fs.readFileSync(path.join(ROOT, "options.html"), "utf8");
   assert.match(html, /id=["']backupExportBtn["']/);

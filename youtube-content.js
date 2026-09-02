@@ -57,6 +57,13 @@
   }
 
   function playerResponse() {
+    if (globalThis.ytInitialPlayerResponse && typeof globalThis.ytInitialPlayerResponse === "object") {
+      return globalThis.ytInitialPlayerResponse;
+    }
+    const configured = globalThis.ytplayer?.config?.args?.player_response;
+    if (typeof configured === "string") {
+      try { return JSON.parse(configured); } catch (error) { /* try page scripts next */ }
+    }
     for (const script of document.scripts) {
       const text = script.textContent || "";
       if (!text.includes("ytInitialPlayerResponse")) continue;

@@ -263,9 +263,16 @@
 
     <!-- 视频问答：独立于字幕管线的展示态，历史按视频与分 P 隔离 -->
     <section id="qaPanel" hidden>
+      <div class="qa-mode-row">
+        <span class="qa-mode-label">问答模式</span>
+        <select id="qaMode" class="qa-mode-select" aria-label="问答模式">
+          <option value="answer">大模型回答</option>
+          <option value="locate">定位字幕片段</option>
+        </select>
+      </div>
       <div class="qa-input-row">
         <input id="qaInput" class="search-input" type="text"
-               placeholder="针对这个视频提问，Enter 发送" autocomplete="off" />
+               placeholder="根据字幕提问，Enter 发送" autocomplete="off" />
         <button id="qaAskBtn" class="qa-ask-btn" type="button">提问</button>
       </div>
       <p id="qaHint" class="qa-hint muted" hidden></p>

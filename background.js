@@ -395,12 +395,9 @@ async function getSettings() {
 // ============================================================
 
 /**
- * 侧边栏对所有页面可用，路径由清单的 side_panel.default_path 给出，这里
- * 不按标签页 setOptions。原因是 per-tab 的 enabled 在两个浏览器上语义不同：
- * Chrome 每个标签页各管各的，Edge 则是窗口级——切到一个 disabled 的标签页会
- * 把整个窗口的侧边栏关掉，切回来也不会自动恢复，正在跑的 AI 任务跟着断
- * （microsoft/MicrosoftEdge-Extensions#142）。改成全局可用之后两边行为一致，
- * 顺带躲开了 setOptions 重载面板打断任务的老毛病；非播放页由侧边栏自己显示引导。
+ * 侧边栏只对当前支持的视频标签页启用。侧边栏本身在 Edge 中可能是窗口级的，
+ * 但用 tabId 管理 enabled 可以阻止切到普通页面后继续显示上一个视频的面板；
+ * 切回支持页面时再恢复。
  */
 
 // 让浏览器自己响应工具栏图标的点击。自己调 open() 要求调用发生在用户手势里，
@@ -413,11 +410,64 @@ function enableActionClickToOpen() {
     );
 }
 
+function isDigestVideoUrl(url) {
+  const value = String(url || "");
+  return Boolean(
+    /https:\/\/(?:www\.)?bilibili\.com\/(?:video|list)\//i.test(value)
+    || VIDEO_DIGEST_YOUTUBE.parseVideoId(value),
+  );
+}
+
+function setTabPanelEnabled(tabId, url) {
+  if (!Number.isInteger(tabId) || !chrome.sidePanel?.setOptions) return Promise.resolve();
+  return chrome.sidePanel.setOptions({
+    tabId,
+    path: "sidepanel.html",
+    enabled: isDigestVideoUrl(url),
+  }).catch((error) => {
+    console.warn("[Bilibili Digest] 无法更新标签页侧边栏状态：", error);
+  });
+}
+
+function initializeTabPanel(tab) {
+  return setTabPanelEnabled(tab?.id, tab?.url);
+}
+
+async function syncActiveTabPanel() {
+  if (!chrome.tabs?.query) return;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    await initializeTabPanel(tab);
+  } catch (error) {
+    console.warn("[Bilibili Digest] 无法初始化当前标签页侧边栏：", error);
+  }
+}
+
+if (chrome.tabs?.onActivated?.addListener) {
+  chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      await initializeTabPanel(tab);
+    } catch (error) {
+      console.warn("[Bilibili Digest] 无法同步活动标签页侧边栏：", error);
+    }
+  });
+}
+
+if (chrome.tabs?.onUpdated?.addListener) {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.url || changeInfo.status === "complete") {
+      void setTabPanelEnabled(tabId, changeInfo.url || tab?.url);
+    }
+  });
+}
+
 // 这两项都是持久化设置，装好/升级/浏览器启动时各设一次即可，不必每次
 // worker 醒来都重设——那正是会撞上 `No SW` 的顶层异步。
 function initializeOnce() {
   restrictStorageAccess();
   enableActionClickToOpen();
+  void syncActiveTabPanel();
 }
 
 chrome.runtime.onStartup.addListener(initializeOnce);
@@ -439,7 +489,9 @@ async function handleOpenSidePanel(tab) {
   if (!tab) return { success: false };
 
   try {
-    // 传 windowId 而不是 tabId：侧边栏是窗口级的，没有按标签页区分的路径。
+    await setTabPanelEnabled(tab.id, tab.url);
+    // 传 windowId 让浏览器把面板打开在当前窗口；前面的 setOptions 已按 tabId
+    // 限制它只在当前支持的视频页可用。
     await chrome.sidePanel.open({ windowId: tab.windowId });
   } catch (error) {
     console.warn("[Bilibili Digest] 打开侧边栏被拒绝：", error);
@@ -772,6 +824,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           bvid: message.bvid,
           page: message.page,
           question: message.question,
+          mode: message.mode,
           signal,
           taskId: message.taskId,
         }),

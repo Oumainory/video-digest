@@ -101,10 +101,15 @@ function createContext({
   videoAvailable = { available: true },
   notes = [],
   replies = {},
+  activeUrl = "https://www.bilibili.com/video/BV1xx411c7mD",
 }) {
   const elements = new Map();
   const byId = (id) => {
-    if (!elements.has(id)) elements.set(id, createElement("div"));
+    if (!elements.has(id)) {
+      const node = createElement(id === "qaMode" ? "select" : "div");
+      if (id === "qaMode") node.value = "answer";
+      elements.set(id, node);
+    }
     return elements.get(id);
   };
 
@@ -175,7 +180,7 @@ function createContext({
         onMessage: { addListener() {} },
       },
       tabs: {
-        query: async () => [{ id: 1, url: "https://www.bilibili.com/video/BV1xx411c7mD" }],
+        query: async () => [{ id: 1, url: activeUrl }],
         sendMessage: async (tabId, message) => {
           if (message?.action === "seekTo") seeks.push(message.seconds);
           return {};
@@ -210,7 +215,7 @@ function createContext({
   // 所以在末尾追加一行，从同一个词法作用域里把要测的绑定递出来。
   const source = fs.readFileSync(path.join(ROOT, "sidepanel.js"), "utf8");
   vm.runInContext(
-    `${source}\n;globalThis.__api = { state, loadTranscript, analyze, cancelAnalysis, cancelRewrite, segmentDisplayText, paintSegmentText, setTranscriptMode, selectionContext, onSelectionChange, applySearchFilter, updateFollowPill, jumpToActive, closeSearch, renderNoteCard, playNote, loadNotes, syncQuoteButtonsWithNotes, exportNotes, exportLearning, renderNotes, applyNotesSearch, renderAnalysis, sendToBackground, submitQuestion, switchTab, appendAnswerText };`,
+    `${source}\n;globalThis.__api = { state, loadTranscript, syncWithActiveTab, analyze, cancelAnalysis, cancelRewrite, segmentDisplayText, paintSegmentText, setTranscriptMode, selectionContext, onSelectionChange, applySearchFilter, updateFollowPill, jumpToActive, closeSearch, renderNoteCard, playNote, loadNotes, syncQuoteButtonsWithNotes, exportNotes, exportLearning, renderNotes, applyNotesSearch, renderAnalysis, sendToBackground, submitQuestion, switchTab, appendAnswerText };`,
     context,
   );
 
@@ -1073,6 +1078,22 @@ test("不在播放页时，「本视频」不显示笔记也不发 getNotes 请�
     ctx.el("notesEmptyText").textContent,
     "在 B 站或 YouTube 的播放页打开本面板，就能阅读该视频的官方字幕。",
   );
+});
+
+test("切到普通标签页时清空旧视频标题并回到打开视频提示", async () => {
+  const ctx = createContext({
+    transcript: transcriptResult(),
+    activeUrl: "https://example.com/article",
+  });
+  ctx.state.bvid = "BV1xx411c7mD";
+  ctx.state.data = transcriptResult();
+  ctx.el("videoMeta").hidden = false;
+
+  await ctx.syncWithActiveTab();
+
+  assert.equal(ctx.state.bvid, null);
+  assert.equal(ctx.el("videoMeta").hidden, true);
+  assert.equal(ctx.el("idleState").hidden, false);
 });
 
 test("「全部」不受影响：不在播放页也能浏览历史笔记", async () => {

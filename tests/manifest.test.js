@@ -44,20 +44,15 @@ test("是一份 MV3 清单", () => {
 
 });
 
-/**
- * 侧边栏的 per-tab enabled 在两个浏览器上语义不同：Chrome 每个标签页各管各的，
- * Edge 是窗口级的——某个标签页被 disable，切过去就会把整个窗口的侧边栏关掉，
- * 正在跑的 AI 任务跟着断。所以路径只由清单提供，代码里不按标签页开关。
- */
-test("侧边栏全局可用，图标点击交给浏览器处理", () => {
+test("侧边栏按标签页限制在支持的视频页面，图标点击交给浏览器处理", () => {
   assert.ok(manifest.side_panel?.default_path, "侧边栏路径应当由清单提供");
   assert.ok(manifest.permissions.includes("sidePanel"));
 
   const source = readText("background.js");
-  assert.doesNotMatch(
+  assert.match(
     source,
-    /sidePanel[\s\S]{0,40}setOptions\(/,
-    "按标签页 setOptions 会让 Edge 在切标签页时关掉侧边栏",
+    /sidePanel[\s\S]{0,160}setOptions\(/,
+    "需要按标签页更新侧边栏可用状态",
   );
   assert.match(
     source,
@@ -262,10 +257,12 @@ test("内容脚本只注入两个平台的播放页，不是整个站点", () =>
   const matches = (manifest.content_scripts || []).flatMap((e) => e.matches);
   assert.ok(matches.length > 0);
   assert.ok(matches.includes("https://www.youtube.com/watch*"));
+  assert.ok(matches.includes("https://youtube.com/watch*"));
+  assert.ok(matches.includes("https://m.youtube.com/watch*"));
   assert.ok(matches.includes("https://www.bilibili.com/video/*"));
   assert.ok(matches.includes("https://www.bilibili.com/list/*"));
   assert.ok(matches.every((pattern) =>
-    /^https:\/\/www\.bilibili\.com\/(video|list)\/|^https:\/\/www\.youtube\.com\/watch\*/.test(pattern),
+    /^https:\/\/(?:www\.)?bilibili\.com\/(video|list)\/|^https:\/\/(?:www\.|m\.)?youtube\.com\/watch\*/.test(pattern),
   ));
 });
 

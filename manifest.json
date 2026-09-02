@@ -10,7 +10,9 @@
     "https://www.bilibili.com/*",
     "https://api.bilibili.com/*",
     "https://*.hdslb.com/*",
-    "https://www.youtube.com/*"
+    "https://www.youtube.com/*",
+    "https://youtube.com/*",
+    "https://m.youtube.com/*"
   ],
   "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
   "icons": {
@@ -46,7 +48,11 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.youtube.com/watch*"],
+      "matches": [
+        "https://www.youtube.com/watch*",
+        "https://youtube.com/watch*",
+        "https://m.youtube.com/watch*"
+      ],
       "js": ["youtube-content.js"],
       "run_at": "document_idle"
     }

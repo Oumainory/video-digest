@@ -286,7 +286,8 @@ function parseYoutubeId(url) {
   const text = String(url || "");
   try {
     const parsed = new URL(text);
-    if (parsed.hostname.replace(/^www\./, "") !== "youtube.com" || parsed.pathname !== "/watch") return null;
+    const hostname = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    if (!["youtube.com", "m.youtube.com"].includes(hostname) || parsed.pathname !== "/watch") return null;
     const id = parsed.searchParams.get("v") || "";
     return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
   } catch (error) {
@@ -306,7 +307,14 @@ function parsePage(url) {
   return Number.isFinite(page) && page > 0 ? page : 1;
 }
 
-async function activeTab() {
+async function activeTab(tabId = null) {
+  if (Number.isInteger(tabId) && chrome.tabs.get) {
+    try {
+      return await chrome.tabs.get(tabId);
+    } catch (error) {
+      return null;
+    }
+  }
   const [tab] = await chrome.tabs.query({ active: true, windowId: state.windowId });
   return tab || null;
 }
@@ -584,19 +592,21 @@ async function controlCompanionTask(action) {
 }
 
 // 跟随当前标签页：换了视频就重新取字幕，不是播放页就回到提示态。
-async function syncWithActiveTab({ force = false } = {}) {
-  const tab = await activeTab();
+async function syncWithActiveTab({ force = false, tabId = null } = {}) {
+  const tab = await activeTab(tabId);
   const bvid = parseBvid(tab?.url);
   const youtubeId = bvid ? null : parseYoutubeId(tab?.url);
   const sourceId = bvid || (youtubeId ? `youtube:${youtubeId}` : null);
 
   if (!sourceId) {
+    state.tabId = null;
     state.platform = "bilibili";
     state.youtubeId = null;
     state.bvid = null;
     state.data = null;
     state.analysis = null;
     state.analysisFailures = [];
+    el("videoMeta").hidden = true;
     setView("idle");
     // 笔记页不跟字幕管线走：离开视频页后「本视频」立刻没了参照物，
     // 重读一遍，别让上一个视频的笔记赖在列表里。
@@ -1823,6 +1833,7 @@ async function submitQuestion() {
       bvid: state.bvid,
       page: state.page,
       question,
+      mode: el("qaMode").value,
     });
 
     if (!result?.success) {
@@ -1944,6 +1955,12 @@ function renderQaCard(entry) {
   const question = document.createElement("p");
   question.className = "qa-question";
   question.textContent = `问：${entry.question}`;
+  if (entry.mode === "locate") {
+    const mode = document.createElement("span");
+    mode.className = "qa-mode-badge";
+    mode.textContent = "定位模式";
+    question.appendChild(mode);
+  }
 
   const answer = document.createElement("div");
   answer.className = "entry-text";
@@ -1953,7 +1970,10 @@ function renderQaCard(entry) {
     status.className = "qa-pending-answer";
     const spinner = document.createElement("span");
     spinner.className = "spinner spinner-inline";
-    status.append(spinner, "正在检索字幕并组织回答…");
+    status.append(
+      spinner,
+      entry.mode === "locate" ? "正在查找字幕片段…" : "正在检索字幕并组织回答…",
+    );
     answer.append(status);
     card.append(head, question, answer);
     return card;
@@ -2734,6 +2754,11 @@ function setupEventListeners() {
   }
 
   el("qaAskBtn").addEventListener("click", submitQuestion);
+  el("qaMode").addEventListener("change", () => {
+    el("qaInput").placeholder = el("qaMode").value === "locate"
+      ? "输入关键词查找字幕片段，Enter 发送"
+      : "根据字幕提问，Enter 发送";
+  });
   el("qaInput").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !qaAsking) submitQuestion();
   });
@@ -2770,14 +2795,14 @@ function setupEventListeners() {
     { passive: true },
   );
 
-  chrome.tabs.onActivated.addListener(({ windowId }) => {
-    if (windowId === state.windowId) syncWithActiveTab();
+  chrome.tabs.onActivated.addListener(({ windowId, tabId }) => {
+    if (windowId === state.windowId) syncWithActiveTab({ tabId });
   });
 
-  // B 站换视频走 pushState，浏览器会以 changeInfo.url 的形式上报。
-  // 不比对 tabId：syncWithActiveTab 自己会解析当前活动标签页，没变就直接返回。
+  // B 站和 YouTube 换视频常走 pushState，浏览器会以 changeInfo.url 的形式上报。
+  // 只响应当前面板所属的活动标签页，后台标签页更新不能覆盖面板内容。
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.url) syncWithActiveTab();
+    if (tabId === state.tabId && changeInfo.url) syncWithActiveTab({ tabId });
   });
 
   chrome.runtime.onMessage.addListener((message) => {
