@@ -610,7 +610,11 @@ async function handleYoutubeTranscript(message = {}) {
     if (cached?.transcript?.length) return { ...cached, success: true, fromCache: true };
   }
 
-  if (!message.playerResponse || typeof message.playerResponse !== "object") {
+  const capturedTrack = VIDEO_DIGEST_YOUTUBE.captionTrackFromUrl(
+    message.captionTrackUrl,
+    youtubeId,
+  );
+  if ((!message.playerResponse || typeof message.playerResponse !== "object") && !capturedTrack) {
     return {
       success: false,
       error: "YOUTUBE_PLAYER_DATA_UNAVAILABLE",
@@ -618,7 +622,11 @@ async function handleYoutubeTranscript(message = {}) {
     };
   }
 
-  const tracks = VIDEO_DIGEST_YOUTUBE.normalizeCaptionTracks(message.playerResponse);
+  const tracks = VIDEO_DIGEST_YOUTUBE.normalizeCaptionTracks(
+    message.playerResponse,
+    youtubeId,
+  );
+  if (!tracks.length && capturedTrack) tracks.push(capturedTrack);
   if (!tracks.length) {
     return {
       success: false,
@@ -640,6 +648,7 @@ async function handleYoutubeTranscript(message = {}) {
       message.playerResponse,
       youtubeId,
       message.sourceUrl,
+      message.pageInfo,
     );
     const texts = BILI_TRANSCRIPT.buildTranscriptTexts(entries);
     const result = {

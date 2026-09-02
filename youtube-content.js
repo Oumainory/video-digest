@@ -7,6 +7,7 @@
   const PLAYER_REQUEST_EVENT = "video-digest:request-player-response";
   const PLAYER_RESPONSE_EVENT = "video-digest:player-response";
   let bridgedPlayerResponse = null;
+  const capturedCaptionUrls = new Map();
   const PLAYER_BUTTON_SELECTORS = [
     ".ytp-right-controls",
     "ytd-watch-metadata #actions-inner",
@@ -71,6 +72,9 @@
       if (payload.videoId === videoId() && matchesCurrentVideo(payload.playerResponse)) {
         bridgedPlayerResponse = payload.playerResponse;
       }
+      if (payload.videoId === videoId() && payload.captionTrackUrl) {
+        capturedCaptionUrls.set(payload.videoId, String(payload.captionTrackUrl));
+      }
     } catch (error) {
       // 页面导航过程中拿到半截数据时等下一次请求即可。
     }
@@ -108,6 +112,32 @@
     return null;
   }
 
+  function hasCaptionTracks(value) {
+    return Array.isArray(
+      value?.captions?.playerCaptionsTracklistRenderer?.captionTracks,
+    ) && value.captions.playerCaptionsTracklistRenderer.captionTracks.length > 0;
+  }
+
+  async function fetchWatchPlayerResponse(id) {
+    if (!id || typeof globalThis.fetch !== "function") return null;
+    try {
+      const response = await globalThis.fetch(
+        `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`,
+        { credentials: "same-origin" },
+      );
+      if (!response?.ok) return null;
+      const html = await response.text();
+      const markers = ["var ytInitialPlayerResponse =", "ytInitialPlayerResponse ="];
+      for (const marker of markers) {
+        const value = jsonAfterMarker(html, marker);
+        if (value?.videoDetails?.videoId === id) return value;
+      }
+    } catch (error) {
+      // 页面响应只是最后一层兜底，失败后仍可使用捕获到的字幕 URL。
+    }
+    return null;
+  }
+
   function readVideoInfo() {
     const video = videoElement();
     const title = document.querySelector("h1.ytd-watch-metadata yt-formatted-string")
@@ -133,11 +163,19 @@
       await new Promise((resolve) => setTimeout(resolve, 150));
       responseData = playerResponse();
     }
+    // 某些页面状态只暴露精简播放器对象。重新读取当前 watch HTML，可恢复
+    // 其中与当前 videoId 对应的官方字幕轨；严格核对 id，避免 SPA 串视频。
+    if (!hasCaptionTracks(responseData)) {
+      const fetched = await fetchWatchPlayerResponse(id);
+      if (fetched) responseData = fetched;
+    }
     const response = await chrome.runtime.sendMessage({
       action: "fetchYoutubeTranscript",
       videoId: id,
       sourceUrl: location.href,
       playerResponse: responseData,
+      captionTrackUrl: capturedCaptionUrls.get(id) || "",
+      pageInfo: readVideoInfo(),
       languagePreference,
       forceRefresh,
     });

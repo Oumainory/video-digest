@@ -27,6 +27,55 @@ test("只从 player response 读取官方字幕轨，并优先人工轨", () => 
   assert.equal(tracks[0].isAi, true);
 });
 
+test("后台按当前视频号过滤播放器响应里的字幕地址", () => {
+  const tracks = YOUTUBE.normalizeCaptionTracks({
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks: [
+          { languageCode: "en", baseUrl: "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en" },
+          { languageCode: "zh", baseUrl: "https://example.com/api/timedtext?v=dQw4w9WgXcQ&lang=zh" },
+          { languageCode: "ja", baseUrl: "https://www.youtube.com/api/timedtext?v=9bZkp7q19f0&lang=ja" },
+        ],
+      },
+    },
+  }, "dQw4w9WgXcQ");
+  assert.deepEqual(tracks.map((track) => track.lang), ["en"]);
+});
+
+test("捕获到的 timedtext 地址必须属于当前 YouTube 视频", () => {
+  const track = YOUTUBE.captionTrackFromUrl(
+    "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&kind=asr",
+    "dQw4w9WgXcQ",
+  );
+  assert.equal(track.lang, "en");
+  assert.equal(track.isAi, true);
+  assert.equal(
+    YOUTUBE.captionTrackFromUrl(
+      "https://www.youtube.com/api/timedtext?v=9bZkp7q19f0&lang=en",
+      "dQw4w9WgXcQ",
+    ),
+    null,
+  );
+  assert.equal(
+    YOUTUBE.captionTrackFromUrl(
+      "https://example.com/api/timedtext?v=dQw4w9WgXcQ&lang=en",
+      "dQw4w9WgXcQ",
+    ),
+    null,
+  );
+});
+
+test("播放器详情缺失时使用页面元信息补齐视频资料", () => {
+  const info = YOUTUBE.normalizeVideoInfo(null, "dQw4w9WgXcQ", "", {
+    title: "页面标题",
+    owner: "频道名",
+    duration: 123,
+  });
+  assert.equal(info.title, "页面标题");
+  assert.equal(info.owner, "频道名");
+  assert.equal(info.duration, 123);
+});
+
 test("解析 YouTube json3 与 XML 字幕正文", () => {
   const json = YOUTUBE.normalizeJson3({
     events: [

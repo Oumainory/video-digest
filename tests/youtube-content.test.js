@@ -41,6 +41,12 @@ function CustomEvent(type, options = {}) {
   this.detail = options.detail;
 }
 
+function FakeXMLHttpRequest() {}
+FakeXMLHttpRequest.prototype.open = function open(method, url) {
+  this.method = method;
+  this.url = url;
+};
+
 test("YouTube 页面桥接在单页切换后返回当前视频的播放器响应", async () => {
   const location = { href: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" };
   let currentResponse = {
@@ -54,6 +60,7 @@ test("YouTube 页面桥接在单页切换后返回当前视频的播放器响应
     location,
     document,
     CustomEvent,
+    XMLHttpRequest: FakeXMLHttpRequest,
   };
   pageContext.window = pageContext;
   vm.createContext(pageContext);
@@ -85,6 +92,12 @@ test("YouTube 页面桥接在单页切换后返回当前视频的播放器响应
   vm.createContext(contentContext);
   vm.runInContext(CONTENT_SOURCE, contentContext);
 
+  const xhr = new pageContext.XMLHttpRequest();
+  xhr.open(
+    "GET",
+    "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&kind=asr",
+  );
+
   const requestTranscript = (forceRefresh = false) => new Promise((resolve) => {
     contentListener(
       { action: "getYoutubeTranscript", forceRefresh },
@@ -95,6 +108,8 @@ test("YouTube 页面桥接在单页切换后返回当前视频的播放器响应
 
   await requestTranscript();
   assert.equal(sent[0].playerResponse.videoDetails.videoId, "dQw4w9WgXcQ");
+  assert.match(sent[0].captionTrackUrl, /v=dQw4w9WgXcQ/);
+  assert.equal(sent[0].pageInfo.title, "测试视频");
 
   location.href = "https://www.youtube.com/watch?v=9bZkp7q19f0";
   currentResponse = {
@@ -105,5 +120,64 @@ test("YouTube 页面桥接在单页切换后返回当前视频的播放器响应
 
   assert.equal(sent[1].videoId, "9bZkp7q19f0");
   assert.equal(sent[1].playerResponse.videoDetails.videoId, "9bZkp7q19f0");
+  assert.equal(sent[1].captionTrackUrl, "", "不能把上一个视频捕获的字幕地址带过来");
   assert.equal(sent[1].forceRefresh, true, "强制刷新参数不能在内容脚本里丢失");
+});
+
+test("播放器没有字幕轨时从当前 watch HTML 恢复响应", async () => {
+  const id = "dQw4w9WgXcQ";
+  const location = { href: `https://www.youtube.com/watch?v=${id}` };
+  const document = createSharedDocument(() => null);
+  let contentListener;
+  let sent;
+  const pageContext = {
+    console,
+    URL,
+    location,
+    document,
+    CustomEvent,
+  };
+  pageContext.window = pageContext;
+  vm.createContext(pageContext);
+  vm.runInContext(PAGE_SOURCE, pageContext);
+
+  const recovered = {
+    videoDetails: { videoId: id, title: "HTML 里的视频" },
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks: [{ languageCode: "en", baseUrl: "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en" }],
+      },
+    },
+  };
+  const contentContext = {
+    console,
+    URL,
+    location,
+    document,
+    CustomEvent,
+    setTimeout(resolve) { resolve(); return 1; },
+    setInterval() { return 1; },
+    fetch: async () => ({
+      ok: true,
+      text: async () => `<script>var ytInitialPlayerResponse = ${JSON.stringify(recovered)};</script>`,
+    }),
+    chrome: {
+      runtime: {
+        async sendMessage(message) { sent = message; return { success: true }; },
+        onMessage: { addListener(listener) { contentListener = listener; } },
+      },
+    },
+  };
+  contentContext.globalThis = contentContext;
+  vm.createContext(contentContext);
+  vm.runInContext(CONTENT_SOURCE, contentContext);
+
+  await new Promise((resolve) => {
+    contentListener({ action: "getYoutubeTranscript" }, {}, resolve);
+  });
+  assert.equal(sent.playerResponse.videoDetails.videoId, id);
+  assert.equal(
+    sent.playerResponse.captions.playerCaptionsTracklistRenderer.captionTracks.length,
+    1,
+  );
 });

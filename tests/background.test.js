@@ -20,6 +20,7 @@ const QA_SERVICE = require("../lib/qa-service.js");
 const TASKS = require("../lib/task-manager.js");
 const NOTE_DB = require("../lib/note-db.js");
 const IDB = require("../lib/idb.js");
+const YOUTUBE = require("../lib/youtube-api.js");
 const { createMemoryIndexedDb } = require("./helpers/memory-idb.js");
 const { memoryStorage } = require("./helpers/memory-storage.js");
 
@@ -171,6 +172,12 @@ function createBackground({
     BILI_TASKS: TASKS,
     BILI_NOTE_DB: NOTE_DB,
     BILI_IDB: IDB,
+    VIDEO_DIGEST_YOUTUBE: {
+      ...YOUTUBE,
+      fetchCaptionTrackContent: async () => [
+        { text: "captured subtitle", start: 1, duration: 1.2 },
+      ],
+    },
   };
   context.globalThis = context;
   vm.createContext(context);
@@ -280,6 +287,24 @@ test("侧边栏按窗口记住明确打开的标签页，不跟到另一个窗�
     ),
     "切回 A 窗口时要恢复原标签页的面板",
   );
+});
+
+test("YouTube 播放器响应缺失时使用当前视频捕获的官方字幕 URL", async () => {
+  const ctx = createBackground();
+  const result = await ctx.send({
+    action: "fetchYoutubeTranscript",
+    videoId: "dQw4w9WgXcQ",
+    sourceUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    captionTrackUrl:
+      "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&kind=asr",
+    pageInfo: { title: "页面标题", owner: "频道名", duration: 120 },
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.transcript[0].text, "captured subtitle");
+  assert.equal(result.videoInfo.title, "页面标题");
+  assert.equal(result.language, "en");
+  assert.equal(result.isAiSubtitle, true);
 });
 
 test("迁移失败后不会卡在降级状态，下一次操作会重试", async () => {
