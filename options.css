@@ -230,8 +230,52 @@ input::placeholder {
 
 .model-filter {
   width: 100%;
-  margin-bottom: 6px;
+  margin-bottom: 7px;
   box-sizing: border-box;
+}
+
+.model-options {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 220px;
+  padding: 4px;
+  overflow-y: auto;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.model-option {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 9px;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  font: inherit;
+  overflow-wrap: anywhere;
+}
+
+.model-option:hover,
+.model-option[aria-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.model-option-empty {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 9px;
+  color: var(--text-muted);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  font-size: 12px;
 }
 
 .model-control > [hidden] {

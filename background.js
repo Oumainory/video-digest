@@ -490,9 +490,9 @@ async function handleOpenSidePanel(tab) {
 
   try {
     await setTabPanelEnabled(tab.id, tab.url);
-    // 传 windowId 让浏览器把面板打开在当前窗口；前面的 setOptions 已按 tabId
-    // 限制它只在当前支持的视频页可用。
-    await chrome.sidePanel.open({ windowId: tab.windowId });
+    // 同时传 tabId，明确把这次打开记录在用户点击的标签页上；这样切到别的
+    // 标签页会隐藏，切回这个标签页时浏览器可以恢复原来的打开状态。
+    await chrome.sidePanel.open({ tabId: tab.id, windowId: tab.windowId });
   } catch (error) {
     console.warn("[Bilibili Digest] 打开侧边栏被拒绝：", error);
     return { success: false, needsToolbarClick: true };

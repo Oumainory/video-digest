@@ -1199,6 +1199,13 @@ function findButtonByLabel(node, label) {
   return null;
 }
 
+function renderedText(node) {
+  if (typeof node === "string") return node;
+  const children = node?.children || [];
+  if (children.length) return children.map(renderedText).join("");
+  return String(node?.textContent || "");
+}
+
 test("笔记可以在卡片内编辑并保存", async () => {
   const ctx = createContext({ transcript: transcriptResult() });
   ctx.state.bvid = NOTE.bvid;
@@ -1671,9 +1678,39 @@ test("提问后立即进入进行态：清输入、上占位卡，完成后替�
   assert.match(questionNode.textContent, /结论是什么/);
   // 渲染层剥离成对引号：历史旧数据也能正常显示。
   const answerNode = cards[0].children.find(
-    (child) => child.className === "entry-text",
+    (child) => String(child.className || "").split(/\s+/).includes("entry-text"),
   );
   assert.equal(answerNode.textContent.includes("“"), false);
+});
+
+test("大模型回答按 Markdown 结构渲染，而不是整段字幕摘录样式", () => {
+  const ctx = createContext({ transcript: transcriptResult() });
+  const node = createElement("div");
+  ctx.appendAnswerText(
+    node,
+    "核心结论是 **反向传播有效**。[0:11]\n\n## 主要原因\n\n- **原因一**：梯度可以传回。[0:30]\n- 原因二：训练更稳定。[0:45]",
+    new Set([11, 30, 45]),
+  );
+
+  assert.deepEqual(
+    node.children.map((child) => child.tagName),
+    ["p", "h3", "ul"],
+    "回答应拆成段落、小标题和列表",
+  );
+  assert.equal(renderedText(node.children[1]), "主要原因");
+  assert.equal(node.children[2].children.length, 2);
+  assert.equal(node.children[0].children.some((child) => child.tagName === "strong"), true);
+  const answerButtons = [];
+  const collectAnswerButtons = (current) => {
+    if (current.tagName === "button") answerButtons.push(current);
+    for (const child of current.children || []) collectAnswerButtons(child);
+  };
+  collectAnswerButtons(node.children[0]);
+  assert.equal(
+    answerButtons.length > 0,
+    true,
+    "Markdown 回答中的时间戳仍应可点击",
+  );
 });
 
 test("问答失败时恢复输入并移除占位卡", async () => {
@@ -1751,12 +1788,15 @@ test("回答正文支持区间时间戳：显示区间、跳到起点", () => {
   const node = createElement("div");
   ctx.appendAnswerText(node, "依据见 [0:11-0:23] 与 [9:99] 越界", new Set([11]));
 
-  const buttons = node.children.filter((child) => child.tagName === "button");
+  const buttons = [];
+  const collectButtons = (current) => {
+    if (current.tagName === "button") buttons.push(current);
+    for (const child of current.children || []) collectButtons(child);
+  };
+  collectButtons(node);
   assert.equal(buttons.length, 1, "越界的时间戳不渲染成按钮");
   assert.equal(buttons[0].textContent, "0:11-0:23");
   // 桩的 textContent 不聚合子节点，从 children 重建全文核对。
-  const rendered = node.children
-    .map((child) => (typeof child === "string" ? child : child.textContent))
-    .join("");
+  const rendered = renderedText(node);
   assert.equal(rendered, "依据见 0:11-0:23 与 [9:99] 越界");
 });

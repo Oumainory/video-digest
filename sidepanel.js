@@ -1892,24 +1892,132 @@ function hideQaHint() {
 }
 
 /**
- * 回答正文里的时间戳渲染成可点击按钮：单点与区间都支持
- * （区间显示原样文本、跳到起点）；不在合法区间的保留纯文本。
- * 切片逻辑在 lib/qa-citations.js，这里只负责拼节点。
+ * 回答正文里的时间戳渲染成可点击按钮，同时安全地支持回答模型输出的少量 Markdown。
+ * 不使用 innerHTML：字幕和模型返回的内容都必须作为纯文本处理，避免注入页面节点。
  */
-function appendAnswerText(node, answer, clickableSeconds) {
+function appendInlineAnswer(node, text, clickable) {
+  const source = String(text || "");
+  const tokenPattern =
+    /(\[(\d{1,3}:[0-5]\d)(?:-(\d{1,3}:[0-5]\d))?\])|(\*\*([\s\S]+?)\*\*)|(`([^`]+?)`)|(\*([^*]+?)\*)/g;
+  let cursor = 0;
+
+  for (const match of source.matchAll(tokenPattern)) {
+    const at = match.index;
+    if (at > cursor) node.append(source.slice(cursor, at));
+
+    if (match[1]) {
+      const seconds = BILI_QA_CITATIONS.timestampToSeconds(match[2]);
+      const label = match[1].slice(1, -1);
+      if (seconds != null && clickable.has(seconds)) {
+        node.append(makeTimestampButton(label, seconds));
+      } else {
+        node.append(match[1]);
+      }
+    } else if (match[4]) {
+      const strong = document.createElement("strong");
+      appendInlineAnswer(strong, match[5], clickable);
+      node.append(strong);
+    } else if (match[6]) {
+      const code = document.createElement("code");
+      code.textContent = match[7];
+      node.append(code);
+    } else if (match[8]) {
+      const emphasis = document.createElement("em");
+      appendInlineAnswer(emphasis, match[9], clickable);
+      node.append(emphasis);
+    }
+    cursor = at + match[0].length;
+  }
+  if (cursor < source.length) node.append(source.slice(cursor));
+}
+
+function appendAnswerMarkdown(node, answer, clickableSeconds) {
   const clickable = new Set(clickableSeconds || []);
   // 渲染时再兜一次：修复前入库的历史回答可能带着成对引号。
-  const clean = BILI_QA_CITATIONS.stripWrappingQuotes(answer);
-  node.textContent = "";
-  for (const segment of BILI_QA_CITATIONS.splitAnswerByTimestamps(clean)) {
-    if (segment.seconds == null) {
-      node.append(segment.text);
-    } else if (clickable.has(segment.seconds)) {
-      node.append(makeTimestampButton(segment.text, segment.seconds));
-    } else {
-      node.append(segment.text);
+  const clean = BILI_QA_CITATIONS.stripWrappingQuotes(answer).replace(/\r\n?/g, "\n");
+  const lines = clean.split("\n");
+  let paragraph = [];
+  let listType = null;
+  let listItems = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    const block = document.createElement("p");
+    appendInlineAnswer(block, paragraph.join(" ").trim(), clickable);
+    node.append(block);
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!listItems.length) return;
+    const list = document.createElement(listType === "ol" ? "ol" : "ul");
+    for (const itemText of listItems) {
+      const item = document.createElement("li");
+      appendInlineAnswer(item, itemText, clickable);
+      list.appendChild(item);
     }
+    node.append(list);
+    listType = null;
+    listItems = [];
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const title = document.createElement(`h${Math.min(4, heading[1].length + 1)}`);
+      appendInlineAnswer(title, heading[2], clickable);
+      node.append(title);
+      continue;
+    }
+
+    if (/^(?:[-*_]\s*){3,}$/.test(line)) {
+      flushParagraph();
+      flushList();
+      node.appendChild(document.createElement("hr"));
+      continue;
+    }
+
+    const unordered = /^[-*+]\s+(.+)$/.exec(line);
+    const ordered = /^\d+[.)]\s+(.+)$/.exec(line);
+    if (unordered || ordered) {
+      flushParagraph();
+      const nextType = ordered ? "ol" : "ul";
+      if (listType && listType !== nextType) flushList();
+      listType = nextType;
+      listItems.push((unordered || ordered)[1]);
+      continue;
+    }
+
+    const quote = /^>\s?(.*)$/.exec(line);
+    if (quote) {
+      flushParagraph();
+      flushList();
+      const blockquote = document.createElement("blockquote");
+      appendInlineAnswer(blockquote, quote[1], clickable);
+      node.append(blockquote);
+      continue;
+    }
+
+    flushList();
+    paragraph.push(line);
   }
+  flushParagraph();
+  flushList();
+}
+
+// 保留旧函数名，测试与历史调用方继续使用同一渲染入口。
+function appendAnswerText(node, answer, clickableSeconds) {
+  node.textContent = "";
+  appendAnswerMarkdown(node, answer, clickableSeconds);
 }
 
 function makeTimestampButton(label, seconds) {
@@ -1954,7 +2062,7 @@ function renderQaCard(entry) {
 
   const question = document.createElement("p");
   question.className = "qa-question";
-  question.textContent = `问：${entry.question}`;
+  question.textContent = entry.question;
   if (entry.mode === "locate") {
     const mode = document.createElement("span");
     mode.className = "qa-mode-badge";
@@ -1963,7 +2071,9 @@ function renderQaCard(entry) {
   }
 
   const answer = document.createElement("div");
-  answer.className = "entry-text";
+  answer.className = entry.mode === "locate"
+    ? "entry-text qa-locate-answer"
+    : "entry-text qa-answer";
   if (entry.pending) {
     // 进行态：转圈 + 说明文字，让「在等 AI」看得见。
     const status = document.createElement("span");

@@ -49,13 +49,13 @@ async function createContext() {
   const downloads = [];
   const byId = (id) => {
     if (!elements.has(id)) {
-      const tag = id === "modelOptions" || id === "preset" || id === "protocol"
+      const tag = id === "preset" || id === "protocol"
         ? "select"
         : id.endsWith("Btn")
           ? "button"
           : "div";
       const element = createElement(tag);
-      if (id === "modelOptions") element.hidden = true;
+      if (id === "modelOptions" || id === "modelFilter") element.hidden = true;
       elements.set(id, element);
     }
     return elements.get(id);
@@ -151,11 +151,12 @@ async function createContext() {
   return { ...context.__api, el: byId, permissionRequests, sent, downloads };
 }
 
-test("模型列表使用原生 select，不依赖会过滤当前输入值的 datalist", () => {
+test("模型列表使用可交互筛选框与自定义列表，不依赖原生 select 下拉菜单", () => {
   const html = fs.readFileSync(path.join(ROOT, "options.html"), "utf8");
   assert.doesNotMatch(html, /<datalist\b/i);
   assert.doesNotMatch(html, /\blist=["']modelOptions["']/i);
-  assert.match(html, /<select[^>]+id=["']modelOptions["'][^>]+hidden/i);
+  assert.match(html, /<input[^>]+id=["']modelFilter["']/i);
+  assert.match(html, /<div[^>]+id=["']modelOptions["'][^>]+role=["']listbox["']/i);
 });
 
 test("设置页提供自动、较短、较长三档概览分块模式", () => {
@@ -180,7 +181,7 @@ test("设置页允许调整相邻分块重复的上下文字符数", () => {
   assert.match(html, /分块重叠字符数/);
 });
 
-test("拉取后在原位置用下拉框替换输入框，不显示两套重复控件", async () => {
+test("拉取后在原位置显示可筛选模型列表，不显示两套重复控件", async () => {
   const ctx = await createContext();
 
   await ctx.el("fetchModelsBtn").dispatch("click");
@@ -199,12 +200,12 @@ test("拉取后在原位置用下拉框替换输入框，不显示两套重复�
   );
   assert.equal(ctx.el("aiModel").value, "already-filled-model");
 
-  picker.value = "model-b";
-  await picker.dispatch("change");
+  const modelB = picker.children.find((option) => option.value === "model-b");
+  await modelB.dispatch("click");
   assert.equal(ctx.el("aiModel").value, "model-b");
 
-  picker.value = "";
-  await picker.dispatch("change");
+  const manual = picker.children.find((option) => option.value === "");
+  await manual.dispatch("click");
   assert.equal(picker.hidden, true);
   assert.equal(ctx.el("aiModel").hidden, false);
   assert.equal(ctx.el("aiModel").focused, true);

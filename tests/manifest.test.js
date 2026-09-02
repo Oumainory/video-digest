@@ -59,6 +59,11 @@ test("侧边栏按标签页限制在支持的视频页面，图标点击交给�
     /openPanelOnActionClick:\s*true/,
     "自己接管图标点击要靠用户手势，Edge 的判定比 Chrome 严，交给浏览器两边都稳",
   );
+  assert.match(
+    source,
+    /sidePanel\.open\(\{\s*tabId:\s*tab\.id[\s\S]{0,80}windowId:\s*tab\.windowId/,
+    "打开时必须绑定到点击的标签页，切换回来才能恢复原来的面板",
+  );
 });
 
 test("同一份清单能投 Chrome 应用商店和 Edge 加载项", () => {

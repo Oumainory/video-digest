@@ -110,12 +110,47 @@ function applyPreset(presetId) {
 
 function clearModelOptions() {
   availableModels = [];
+  hideModelPicker();
+}
+
+function hideModelPicker() {
   modelFilter.value = "";
   modelFilter.hidden = true;
   modelOptions.textContent = "";
-  modelOptions.value = "";
   modelOptions.hidden = true;
   fields.model.hidden = false;
+}
+
+function chooseModel(value) {
+  const model = String(value || "").trim();
+  if (!model) {
+    hideModelPicker();
+    fields.model.focus();
+    return;
+  }
+  fields.model.value = model;
+  renderModelOptions();
+}
+
+function modelOption({ value, label = value, disabled = false, selected = false } = {}) {
+  const option = document.createElement("button");
+  option.type = "button";
+  option.className = disabled ? "model-option-empty" : "model-option";
+  option.textContent = label;
+  option.value = value;
+  option.disabled = disabled;
+  option.setAttribute?.("role", "option");
+  option.setAttribute?.("aria-selected", String(selected));
+  if (!disabled) {
+    option.addEventListener("click", (event) => {
+      // 这些按钮位于 field label 内，阻止 label 的默认聚焦行为，
+      // 避免点击列表项又把隐藏的手动输入框抢回来。
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      chooseModel(value);
+    });
+  }
+  return option;
 }
 
 function renderModelOptions() {
@@ -128,33 +163,30 @@ function renderModelOptions() {
 
   // 手填值不在服务端列表里时仍保留为当前选项，不替用户擅自改配置。
   if (currentModel && !models.includes(currentModel)) {
-    const current = document.createElement("option");
-    current.value = currentModel;
-    current.textContent = `${currentModel}（当前）`;
-    modelOptions.appendChild(current);
+    modelOptions.appendChild(modelOption({
+      value: currentModel,
+      label: `${currentModel}（当前）`,
+      selected: true,
+    }));
   }
 
   for (const id of models) {
-    const option = document.createElement("option");
-    option.value = id;
-    option.textContent = id;
-    modelOptions.appendChild(option);
+    modelOptions.appendChild(modelOption({
+      value: id,
+      selected: id === currentModel,
+    }));
   }
 
   if (!models.length && !currentModel) {
-    const empty = document.createElement("option");
-    empty.value = "";
-    empty.textContent = "没有匹配的模型";
-    empty.disabled = true;
-    modelOptions.appendChild(empty);
+    modelOptions.appendChild(modelOption({
+      value: "",
+      label: "没有匹配的模型",
+      disabled: true,
+    }));
   }
 
-  const manual = document.createElement("option");
-  manual.value = "";
-  manual.textContent = "手动填写模型名称…";
+  const manual = modelOption({ value: "", label: "手动填写模型名称…" });
   modelOptions.appendChild(manual);
-
-  modelOptions.value = currentModel;
   fields.model.hidden = true;
   modelOptions.hidden = false;
 }
@@ -432,16 +464,6 @@ fields.protocol.addEventListener("change", () => {
   clearModelOptions();
 });
 fields.baseUrl.addEventListener("change", clearModelOptions);
-modelOptions.addEventListener("change", () => {
-  if (modelOptions.value) {
-    fields.model.value = modelOptions.value;
-    return;
-  }
-  modelOptions.hidden = true;
-  fields.model.hidden = false;
-  fields.model.focus();
-});
-
 modelFilter.addEventListener("input", renderModelOptions);
 
 document.getElementById("saveBtn").addEventListener("click", save);

@@ -1127,6 +1127,90 @@ button {
   opacity: 0.75;
 }
 
+/* 问答不是笔记摘录：去掉 .note 的装饰引号，回答按 Markdown 结构排版。 */
+.qa-card .entry-text::before,
+.qa-card .entry-text::after {
+  content: none;
+}
+
+.qa-answer {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.qa-answer p {
+  margin: 0 0 11px;
+}
+
+.qa-answer p:last-child {
+  margin-bottom: 0;
+}
+
+.qa-answer h2,
+.qa-answer h3,
+.qa-answer h4 {
+  margin: 15px 0 6px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.qa-answer h2 {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 16px;
+}
+
+.qa-answer h3 {
+  font-size: 14px;
+}
+
+.qa-answer h4 {
+  font-size: 13px;
+}
+
+.qa-answer ul,
+.qa-answer ol {
+  margin: 5px 0 12px;
+  padding-left: 21px;
+}
+
+.qa-answer li {
+  padding-left: 2px;
+  margin: 4px 0;
+}
+
+.qa-answer strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.qa-answer code {
+  padding: 1px 4px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.qa-answer blockquote {
+  margin: 7px 0 12px;
+  padding-left: 10px;
+  color: var(--text-muted);
+  border-left: 3px solid var(--accent-soft-strong);
+}
+
+.qa-answer hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.qa-locate-answer {
+  color: var(--text-muted);
+}
+
 /* ---------- 本地识别 ---------- */
 
 .panel-toolbar-title {
@@ -1280,9 +1364,14 @@ button {
 }
 
 .qa-question {
-  margin: 0 0 6px;
+  max-width: 90%;
+  margin: 0 0 12px auto;
+  padding: 8px 10px;
   font-size: 13px;
+  line-height: 1.55;
   color: var(--text);
+  background: var(--bg-hover);
+  border-radius: 10px 10px 3px 10px;
   overflow-wrap: anywhere;
 }
 
