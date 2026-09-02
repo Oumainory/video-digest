@@ -49,9 +49,19 @@
     },
     {
       "matches": [
-        "https://www.youtube.com/watch*",
-        "https://youtube.com/watch*",
-        "https://m.youtube.com/watch*"
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://m.youtube.com/*"
+      ],
+      "js": ["youtube-page.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://m.youtube.com/*"
       ],
       "js": ["youtube-content.js"],
       "run_at": "document_idle"

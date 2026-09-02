@@ -108,6 +108,37 @@ test("其它 OpenAI 兼容服务不会收到 DeepSeek 的私有字段", () => {
   );
 });
 
+test("问答历史的缓存断点只发给 Anthropic，不污染 OpenAI 兼容消息", () => {
+  const messages = [
+    { role: "system", content: "系统" },
+    { role: "user", content: "上一问" },
+    { role: "assistant", content: "上一答", cacheControl: true },
+    { role: "user", content: "追问" },
+  ];
+  const openai = provider.buildChatRequest({
+    settings: openaiSettings,
+    messages,
+    maxTokens: 100,
+  });
+  assert.equal(
+    openai.body.messages.some((message) => "cacheControl" in message),
+    false,
+  );
+
+  const anthropic = provider.buildChatRequest({
+    settings: anthropicSettings,
+    messages,
+    maxTokens: 100,
+  });
+  assert.deepEqual(anthropic.body.messages[1].content, [
+    {
+      type: "text",
+      text: "上一答",
+      cache_control: { type: "ephemeral" },
+    },
+  ]);
+});
+
 test("地址非法时 vendorExtras 不抛错", () => {
   assert.deepEqual(provider.vendorExtras("不是地址"), {});
   assert.deepEqual(provider.vendorExtras(""), {});

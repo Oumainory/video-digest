@@ -31,8 +31,10 @@ function createBackground({
   cached = null,
   storage: suppliedStorage,
   aiReply = null,
+  browserTabs = [],
 } = {}) {
   const storage = suppliedStorage || memoryStorage(initial);
+  const sessionStorage = memoryStorage({});
   if (aiReply !== null) {
     storage.data[SETTINGS.STORAGE_KEY] = {
       presetId: "custom",
@@ -48,7 +50,15 @@ function createBackground({
   if (cached) cacheStore[`${BVID}:1`] = structuredClone(cached);
   const idb = createMemoryIndexedDb();
   let messageListener;
+  let actionClickListener;
+  let tabActivatedListener;
+  let tabUpdatedListener;
+  let tabRemovedListener;
+  let windowFocusListener;
+  let windowRemovedListener;
   const broadcasts = [];
+  const panelCalls = [];
+  const tabsById = new Map(browserTabs.map((tab) => [tab.id, { ...tab }]));
   const context = {
     console,
     setTimeout,
@@ -85,8 +95,32 @@ function createBackground({
     },
     importScripts() {},
     chrome: {
-      storage: { local: storage },
-      sidePanel: { setPanelBehavior: async () => {}, open: async () => {} },
+      storage: { local: storage, session: sessionStorage },
+      sidePanel: {
+        setPanelBehavior: async (value) => panelCalls.push({ method: "behavior", value }),
+        setOptions: async (value) => panelCalls.push({ method: "options", value }),
+        open: async (value) => panelCalls.push({ method: "open", value }),
+      },
+      action: {
+        onClicked: { addListener(listener) { actionClickListener = listener; } },
+      },
+      tabs: {
+        async get(tabId) { return tabsById.get(tabId); },
+        async query(query = {}) {
+          return [...tabsById.values()].filter((tab) =>
+            (!query.active || tab.active)
+            && (!Number.isInteger(query.windowId) || tab.windowId === query.windowId),
+          );
+        },
+        onActivated: { addListener(listener) { tabActivatedListener = listener; } },
+        onUpdated: { addListener(listener) { tabUpdatedListener = listener; } },
+        onRemoved: { addListener(listener) { tabRemovedListener = listener; } },
+      },
+      windows: {
+        WINDOW_ID_NONE: -1,
+        onFocusChanged: { addListener(listener) { windowFocusListener = listener; } },
+        onRemoved: { addListener(listener) { windowRemovedListener = listener; } },
+      },
       runtime: {
         getURL: (value) => value,
         openOptionsPage() {},
@@ -152,7 +186,21 @@ function createBackground({
     });
   }
 
-  return { storage, send, broadcasts, idb };
+  return {
+    storage,
+    send,
+    broadcasts,
+    idb,
+    panelCalls,
+    events: {
+      actionClick(tab) { actionClickListener?.(tab); },
+      tabActivated(info) { return tabActivatedListener?.(info); },
+      tabUpdated(tabId, changeInfo, tab) { tabUpdatedListener?.(tabId, changeInfo, tab); },
+      tabRemoved(tabId, info) { tabRemovedListener?.(tabId, info); },
+      windowFocus(windowId) { return windowFocusListener?.(windowId); },
+      windowRemoved(windowId) { windowRemovedListener?.(windowId); },
+    },
+  };
 }
 
 // 笔记的正牌后端在沙箱的假 IndexedDB 里，用同一套真实驱动读出来断言。
@@ -188,6 +236,50 @@ test("service worker 启动时不读存储，迁移等到真正用数据时才�
   await ctx.send({ action: "getNotes", bvid: BVID, page: 1 });
 
   assert.equal(reads[0], LEARNING_STORE.META_KEY, "真正要用笔记时才迁移");
+});
+
+test("侧边栏按窗口记住明确打开的标签页，不跟到另一个窗口", async () => {
+  const tabA = {
+    id: 11,
+    windowId: 1,
+    active: true,
+    url: "https://www.bilibili.com/video/BV1xx411c7mD",
+  };
+  const tabB = {
+    id: 22,
+    windowId: 2,
+    active: true,
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  };
+  const ctx = createBackground({ browserTabs: [tabA, tabB] });
+
+  ctx.events.actionClick(tabA);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(
+    ctx.panelCalls.some((call) =>
+      call.method === "open" && call.value.tabId === tabA.id
+      && call.value.windowId === undefined,
+    ),
+    "打开必须绑定标签页，不能创建会跨窗口跟随的全局面板",
+  );
+
+  await ctx.events.windowFocus(tabB.windowId);
+  assert.ok(
+    ctx.panelCalls.some((call) =>
+      call.method === "options" && call.value.tabId === tabB.id
+      && call.value.enabled === false,
+    ),
+    "从未打开过 Digest 的 B 窗口必须禁用面板",
+  );
+
+  await ctx.events.windowFocus(tabA.windowId);
+  assert.ok(
+    ctx.panelCalls.some((call) =>
+      call.method === "options" && call.value.tabId === tabA.id
+      && call.value.enabled === true,
+    ),
+    "切回 A 窗口时要恢复原标签页的面板",
+  );
 });
 
 test("迁移失败后不会卡在降级状态，下一次操作会重试", async () => {

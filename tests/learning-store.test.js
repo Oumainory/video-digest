@@ -410,6 +410,34 @@ test("章前金句单独成节，含字幕时跟当前视图走", () => {
   );
 });
 
+test("YouTube 学习稿的章节与字幕时间戳保留可点击链接", () => {
+  const markdown = STORE.learningAsMarkdown({
+    title: "YouTube 课程",
+    bvid: "youtube:dQw4w9WgXcQ",
+    exportedAt: "2026-08-19T12:00:00.000Z",
+    analysis: {
+      chapters: [
+        { timestamp: "0:10", timestampSeconds: 10, title: "开场", summary: "介绍主题。" },
+      ],
+      keyQuotes: [],
+    },
+    transcript: {
+      mode: "original",
+      segments: [{ start: 12, source: "正文" }],
+    },
+  });
+
+  assert.match(markdown, /url: "https:\/\/www\.youtube\.com\/watch\?v=dQw4w9WgXcQ"/);
+  assert.match(
+    markdown,
+    /\[0:10\]\(https:\/\/www\.youtube\.com\/watch\?v=dQw4w9WgXcQ&t=10\)/,
+  );
+  assert.match(
+    markdown,
+    /\[0:12\]\(https:\/\/www\.youtube\.com\/watch\?v=dQw4w9WgXcQ&t=12\)/,
+  );
+});
+
 test("笔记搜索匹配正文、标题和 UP 主", () => {
   assert.equal(STORE.filterNotes([NOTE_A, NOTE_C], "另一部").length, 1);
   assert.equal(STORE.filterNotes([NOTE_A, NOTE_C], "UP 乙")[0].id, "note_c");

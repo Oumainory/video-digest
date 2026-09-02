@@ -4,6 +4,9 @@
 
   const BUTTON_ID = "video-digest-youtube-button";
   const NOTE_BUTTON_ID = "video-digest-youtube-note-button";
+  const PLAYER_REQUEST_EVENT = "video-digest:request-player-response";
+  const PLAYER_RESPONSE_EVENT = "video-digest:player-response";
+  let bridgedPlayerResponse = null;
   const PLAYER_BUTTON_SELECTORS = [
     ".ytp-right-controls",
     "ytd-watch-metadata #actions-inner",
@@ -56,19 +59,51 @@
     return null;
   }
 
+  function matchesCurrentVideo(value) {
+    return value?.videoDetails?.videoId === videoId();
+  }
+
+  // youtube-page.js 运行在页面世界；DOM 事件是 isolated world 与页面世界之间
+  // 唯一需要的窄桥。dispatchEvent 是同步的，所以请求返回时数据已经可读。
+  document.addEventListener(PLAYER_RESPONSE_EVENT, (event) => {
+    try {
+      const payload = JSON.parse(String(event.detail || ""));
+      if (payload.videoId === videoId() && matchesCurrentVideo(payload.playerResponse)) {
+        bridgedPlayerResponse = payload.playerResponse;
+      }
+    } catch (error) {
+      // 页面导航过程中拿到半截数据时等下一次请求即可。
+    }
+  });
+
+  function requestBridgedPlayerResponse() {
+    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    document.dispatchEvent(new CustomEvent(PLAYER_REQUEST_EVENT, { detail: requestId }));
+    return matchesCurrentVideo(bridgedPlayerResponse) ? bridgedPlayerResponse : null;
+  }
+
   function playerResponse() {
+    const bridged = requestBridgedPlayerResponse();
+    if (bridged) return bridged;
     if (globalThis.ytInitialPlayerResponse && typeof globalThis.ytInitialPlayerResponse === "object") {
-      return globalThis.ytInitialPlayerResponse;
+      if (matchesCurrentVideo(globalThis.ytInitialPlayerResponse)) {
+        return globalThis.ytInitialPlayerResponse;
+      }
     }
     const configured = globalThis.ytplayer?.config?.args?.player_response;
     if (typeof configured === "string") {
-      try { return JSON.parse(configured); } catch (error) { /* try page scripts next */ }
+      try {
+        const value = JSON.parse(configured);
+        if (matchesCurrentVideo(value)) return value;
+      } catch (error) { /* try page scripts next */ }
     }
     for (const script of document.scripts) {
       const text = script.textContent || "";
       if (!text.includes("ytInitialPlayerResponse")) continue;
       const value = jsonAfterMarker(text, "ytInitialPlayerResponse");
-      if (value) return value;
+      // YouTube 是单页应用。旧 script 会一直留在 DOM 里，必须核对 videoId，
+      // 否则切视频后会把上一个视频的字幕轨发给后台。
+      if (matchesCurrentVideo(value)) return value;
     }
     return null;
   }
@@ -90,14 +125,21 @@
     };
   }
 
-  async function getTranscript(languagePreference) {
+  async function getTranscript(languagePreference, forceRefresh = false) {
     const id = videoId();
+    let responseData = playerResponse();
+    // 侧边栏可能比 YouTube 播放器初始化快一点，给页面变量一个很短的就绪窗口。
+    for (let attempt = 0; !responseData && attempt < 10; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      responseData = playerResponse();
+    }
     const response = await chrome.runtime.sendMessage({
       action: "fetchYoutubeTranscript",
       videoId: id,
       sourceUrl: location.href,
-      playerResponse: playerResponse(),
+      playerResponse: responseData,
       languagePreference,
+      forceRefresh,
     });
     return response;
   }
@@ -178,7 +220,7 @@
       return false;
     }
     if (message?.action === "getYoutubeTranscript") {
-      getTranscript(message.languagePreference)
+      getTranscript(message.languagePreference, message.forceRefresh)
         .then(sendResponse)
         .catch((error) => sendResponse({ success: false, error: error.message || "YouTube 字幕获取失败。" }));
       return true;

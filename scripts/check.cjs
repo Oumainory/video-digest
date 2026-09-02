@@ -34,6 +34,7 @@ if (validator.status !== 0) {
 const files = new Set([
   "background.js",
   "content.js",
+  "youtube-page.js",
   "youtube-content.js",
   "sidepanel.js",
   "options.js",

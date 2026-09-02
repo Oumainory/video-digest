@@ -114,3 +114,61 @@ test("定位字幕模式只返回命中片段，不调用大模型", async () =>
   assert.match(result.entry.answer, /反向传播/);
   assert.deepEqual(result.entry.clickable, [0, 12]);
 });
+
+test("同一视频的大模型回答按原顺序成为后续上下文，定位结果不混入", async () => {
+  const idb = createMemoryIndexedDb();
+  const requests = [];
+  let answerIndex = 0;
+  const service = QA_SERVICE.createQaService({
+    cache: { load: async () => null },
+    dataReady: async () => {},
+    ensureTranscript: async () => ({
+      success: true,
+      transcript: [{ start: 0, text: "字幕句子" }],
+      segments: SEGMENTS_FIXTURE,
+      videoInfo: { title: "标题", owner: "UP", duration: 30 },
+    }),
+    learningRepository: () => LEARNING_STORE.createLearningRepository({
+      driver: IDB.createObjectStoreDriver({ storeName: "learning", indexedDB: idb }),
+    }),
+    getSettings: async () => ({}),
+    repository: () => QA_SERVICE.createQaRepository({
+      driver: IDB.createObjectStoreDriver({ storeName: "qa", indexedDB: idb }),
+    }),
+    loadPromptSection: async (file, heading, vars) =>
+      heading === "系统提示词"
+        ? "系统"
+        : `问题=${vars.question};字幕=${vars.transcriptText}`,
+    requestAiCompletion: async ({ messages }) => {
+      requests.push(messages);
+      answerIndex += 1;
+      return { text: JSON.stringify({ answer: `回答${answerIndex} [0:00]` }) };
+    },
+    aiErrorResponse: (error) => ({ success: false, error: error.message }),
+  });
+
+  await service.askQuestion({ bvid: "BV1xx411c7mD", question: "第一问" });
+  await service.askQuestion({
+    bvid: "BV1xx411c7mD",
+    question: "字幕句子在哪里？",
+    mode: "locate",
+  });
+  await service.askQuestion({ bvid: "BV1xx411c7mD", question: "第二问" });
+
+  assert.equal(requests.length, 2, "定位模式不调用模型");
+  assert.deepEqual(
+    requests[1].map((message) => message.role),
+    ["system", "user", "assistant", "user"],
+  );
+  assert.match(requests[1][1].content, /第一问/);
+  assert.match(requests[1][2].content, /回答1/);
+  assert.equal(requests[1][2].cacheControl, true, "最后一轮历史是缓存断点");
+  assert.doesNotMatch(
+    requests[1].map((message) => message.content).join("\n"),
+    /在哪里/,
+    "本地定位结果不能污染模型对话",
+  );
+
+  const history = await service.getQaHistory("BV1xx411c7mD", 1);
+  assert.equal("llmUserPrompt" in history.entries[0], false, "内部提示词不发给界面");
+});

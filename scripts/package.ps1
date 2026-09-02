@@ -11,6 +11,7 @@ $files = @(
   "manifest.json",
   "background.js",
   "content.js",
+  "youtube-page.js",
   "youtube-content.js",
   "settings.js",
   "sidepanel.html",

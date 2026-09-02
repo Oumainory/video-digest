@@ -44,7 +44,7 @@ test("是一份 MV3 清单", () => {
 
 });
 
-test("侧边栏按标签页限制在支持的视频页面，图标点击交给浏览器处理", () => {
+test("侧边栏绑定明确打开的标签页，并在窗口切换时恢复各自状态", () => {
   assert.ok(manifest.side_panel?.default_path, "侧边栏路径应当由清单提供");
   assert.ok(manifest.permissions.includes("sidePanel"));
 
@@ -56,13 +56,23 @@ test("侧边栏按标签页限制在支持的视频页面，图标点击交给�
   );
   assert.match(
     source,
-    /openPanelOnActionClick:\s*true/,
-    "自己接管图标点击要靠用户手势，Edge 的判定比 Chrome 严，交给浏览器两边都稳",
+    /openPanelOnActionClick:\s*false/,
+    "浏览器的全局自动打开会让面板跟到其它窗口，必须关闭",
   );
   assert.match(
     source,
-    /sidePanel\.open\(\{\s*tabId:\s*tab\.id[\s\S]{0,80}windowId:\s*tab\.windowId/,
-    "打开时必须绑定到点击的标签页，切换回来才能恢复原来的面板",
+    /action\.onClicked\.addListener[\s\S]{0,220}handleOpenSidePanel\(tab\)/,
+    "工具栏点击必须在用户手势里直接打开当前标签页",
+  );
+  assert.match(
+    source,
+    /sidePanel\.open\(\{\s*tabId:\s*tab\.id\s*\}\)/,
+    "打开时只绑定标签页，不能同时创建窗口级面板",
+  );
+  assert.match(
+    source,
+    /windows\.onFocusChanged\.addListener/,
+    "切换浏览器窗口不会触发 tabs.onActivated，需要单独同步",
   );
 });
 
@@ -258,17 +268,23 @@ test("自定义 AI 地址走可选权限，且明文 http 只对本机放行", (
   }
 });
 
-test("内容脚本只注入两个平台的播放页，不是整个站点", () => {
+test("内容脚本覆盖 B 站播放页与 YouTube 单页导航入口", () => {
   const matches = (manifest.content_scripts || []).flatMap((e) => e.matches);
   assert.ok(matches.length > 0);
-  assert.ok(matches.includes("https://www.youtube.com/watch*"));
-  assert.ok(matches.includes("https://youtube.com/watch*"));
-  assert.ok(matches.includes("https://m.youtube.com/watch*"));
+  assert.ok(matches.includes("https://www.youtube.com/*"));
+  assert.ok(matches.includes("https://youtube.com/*"));
+  assert.ok(matches.includes("https://m.youtube.com/*"));
   assert.ok(matches.includes("https://www.bilibili.com/video/*"));
   assert.ok(matches.includes("https://www.bilibili.com/list/*"));
   assert.ok(matches.every((pattern) =>
-    /^https:\/\/(?:www\.)?bilibili\.com\/(video|list)\/|^https:\/\/(?:www\.|m\.)?youtube\.com\/watch\*/.test(pattern),
+    /^https:\/\/(?:www\.)?bilibili\.com\/(video|list)\/|^https:\/\/(?:www\.|m\.)?youtube\.com\/\*/.test(pattern),
   ));
+
+  const youtubeMain = (manifest.content_scripts || []).find((entry) =>
+    entry.world === "MAIN" && entry.js?.includes("youtube-page.js"),
+  );
+  assert.ok(youtubeMain, "需要页面世界桥接才能读取 YouTube 当前播放器响应");
+  assert.equal(youtubeMain.run_at, "document_start");
 });
 
 test("侧边栏与设置页的存储读写走同一个 storage key", () => {

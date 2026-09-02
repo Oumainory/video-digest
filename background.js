@@ -395,16 +395,53 @@ async function getSettings() {
 // ============================================================
 
 /**
- * 侧边栏只对当前支持的视频标签页启用。侧边栏本身在 Edge 中可能是窗口级的，
- * 但用 tabId 管理 enabled 可以阻止切到普通页面后继续显示上一个视频的面板；
- * 切回支持页面时再恢复。
+ * 每个浏览器窗口只允许一个明确打开过 Digest 的标签页显示侧边栏。
+ * Chrome 的默认侧边栏是窗口级的；仅按 URL 把所有视频页设为 enabled，
+ * 会让 A 窗口打开的面板跟到从未打开过它的 B 窗口。这里把 owner 记在
+ * storage.session，service worker 被回收后也能恢复窗口各自的状态。
  */
+const PANEL_OWNERS_KEY = "video_digest_panel_owners";
+const panelOwners = new Map();
+let panelOwnersLoaded = null;
 
-// 让浏览器自己响应工具栏图标的点击。自己调 open() 要求调用发生在用户手势里，
-// 而手势的判定 Edge 比 Chrome 严，交给浏览器是两边都稳的唯一做法。
+async function loadPanelOwners() {
+  if (panelOwnersLoaded) return panelOwnersLoaded;
+  panelOwnersLoaded = (async () => {
+    const storage = chrome.storage?.session;
+    if (!storage?.get) return;
+    const stored = await storage.get(PANEL_OWNERS_KEY).catch(() => ({}));
+    const owners = stored?.[PANEL_OWNERS_KEY];
+    if (!owners || typeof owners !== "object") return;
+    for (const [windowId, tabId] of Object.entries(owners)) {
+      const parsedWindowId = Number(windowId);
+      if (Number.isInteger(parsedWindowId) && Number.isInteger(tabId)) {
+        panelOwners.set(parsedWindowId, tabId);
+      }
+    }
+  })();
+  return panelOwnersLoaded;
+}
+
+function persistPanelOwners() {
+  const storage = chrome.storage?.session;
+  if (!storage?.set) return Promise.resolve();
+  return storage.set({
+    [PANEL_OWNERS_KEY]: Object.fromEntries(panelOwners),
+  }).catch(() => {});
+}
+
+async function rememberPanelOwner(tab) {
+  if (!Number.isInteger(tab?.windowId) || !Number.isInteger(tab?.id)) return;
+  await loadPanelOwners();
+  panelOwners.set(tab.windowId, tab.id);
+  await persistPanelOwners();
+}
+
+// 图标点击由 chrome.action.onClicked 直接处理。关闭浏览器的自动全局打开，
+// 否则它会先于 tabId 绑定把同一个面板带到其它窗口。
 function enableActionClickToOpen() {
   chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
+    .setPanelBehavior({ openPanelOnActionClick: false })
     .catch((error) =>
       console.warn("[Bilibili Digest] 无法设置侧边栏点击行为：", error),
     );
@@ -418,19 +455,25 @@ function isDigestVideoUrl(url) {
   );
 }
 
-function setTabPanelEnabled(tabId, url) {
+function setTabPanelEnabled(tabId, url, enabled = true) {
   if (!Number.isInteger(tabId) || !chrome.sidePanel?.setOptions) return Promise.resolve();
   return chrome.sidePanel.setOptions({
     tabId,
     path: "sidepanel.html",
-    enabled: isDigestVideoUrl(url),
+    enabled: Boolean(enabled && isDigestVideoUrl(url)),
   }).catch((error) => {
     console.warn("[Bilibili Digest] 无法更新标签页侧边栏状态：", error);
   });
 }
 
-function initializeTabPanel(tab) {
-  return setTabPanelEnabled(tab?.id, tab?.url);
+async function initializeTabPanel(tab) {
+  if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.windowId)) return;
+  await loadPanelOwners();
+  return setTabPanelEnabled(
+    tab.id,
+    tab.url || tab.pendingUrl,
+    panelOwners.get(tab.windowId) === tab.id,
+  );
 }
 
 async function syncActiveTabPanel() {
@@ -457,8 +500,41 @@ if (chrome.tabs?.onActivated?.addListener) {
 if (chrome.tabs?.onUpdated?.addListener) {
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.url || changeInfo.status === "complete") {
-      void setTabPanelEnabled(tabId, changeInfo.url || tab?.url);
+      void initializeTabPanel({
+        ...tab,
+        id: tabId,
+        url: changeInfo.url || tab?.url,
+      });
     }
+  });
+}
+
+// 切换浏览器窗口不会触发 tabs.onActivated；必须单独同步新聚焦窗口，
+// 否则它会沿用上一个窗口的全局面板。
+if (chrome.windows?.onFocusChanged?.addListener) {
+  chrome.windows.onFocusChanged.addListener(async (windowId) => {
+    if (!Number.isInteger(windowId) || windowId === chrome.windows.WINDOW_ID_NONE) return;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, windowId });
+      await initializeTabPanel(tab);
+    } catch (error) {
+      console.warn("[Bilibili Digest] 无法同步窗口侧边栏状态：", error);
+    }
+  });
+}
+
+if (chrome.tabs?.onRemoved?.addListener) {
+  chrome.tabs.onRemoved.addListener((tabId, { windowId } = {}) => {
+    if (panelOwners.get(windowId) !== tabId) return;
+    panelOwners.delete(windowId);
+    void persistPanelOwners();
+  });
+}
+
+if (chrome.windows?.onRemoved?.addListener) {
+  chrome.windows.onRemoved.addListener((windowId) => {
+    if (!panelOwners.delete(windowId)) return;
+    void persistPanelOwners();
   });
 }
 
@@ -486,13 +562,17 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
  * 工具栏图标——那条路由浏览器自己处理，一定有效。
  */
 async function handleOpenSidePanel(tab) {
-  if (!tab) return { success: false };
+  if (!Number.isInteger(tab?.id) || !isDigestVideoUrl(tab?.url)) {
+    return { success: false };
+  }
 
+  const ownerSaved = rememberPanelOwner(tab);
+  // 两个调用都在用户手势的同步调用栈里发起。先 await setOptions 会让部分
+  // Chromium 版本认为手势已经结束，从而拒绝 open()。
+  const enabled = setTabPanelEnabled(tab.id, tab.url, true);
+  const opened = chrome.sidePanel.open({ tabId: tab.id });
   try {
-    await setTabPanelEnabled(tab.id, tab.url);
-    // 同时传 tabId，明确把这次打开记录在用户点击的标签页上；这样切到别的
-    // 标签页会隐藏，切回这个标签页时浏览器可以恢复原来的打开状态。
-    await chrome.sidePanel.open({ tabId: tab.id, windowId: tab.windowId });
+    await Promise.all([ownerSaved, enabled, opened]);
   } catch (error) {
     console.warn("[Bilibili Digest] 打开侧边栏被拒绝：", error);
     return { success: false, needsToolbarClick: true };
@@ -504,6 +584,12 @@ async function handleOpenSidePanel(tab) {
     .sendMessage({ action: "startDigestFromButton" })
     .catch(() => {});
   return { success: true };
+}
+
+if (chrome.action?.onClicked?.addListener) {
+  chrome.action.onClicked.addListener((tab) => {
+    void handleOpenSidePanel(tab);
+  });
 }
 
 // ============================================================
@@ -522,6 +608,14 @@ async function handleYoutubeTranscript(message = {}) {
   if (!message.forceRefresh) {
     const cached = await BILI_CACHE.load(sourceId, { page });
     if (cached?.transcript?.length) return { ...cached, success: true, fromCache: true };
+  }
+
+  if (!message.playerResponse || typeof message.playerResponse !== "object") {
+    return {
+      success: false,
+      error: "YOUTUBE_PLAYER_DATA_UNAVAILABLE",
+      message: "YouTube 播放器数据还没准备好。请刷新视频页面后重试。",
+    };
   }
 
   const tracks = VIDEO_DIGEST_YOUTUBE.normalizeCaptionTracks(message.playerResponse);
