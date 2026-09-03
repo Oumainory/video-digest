@@ -680,7 +680,26 @@ async function handleYoutubeTranscript(message = {}) {
   const trackCandidates = [primaryTrack];
   if (preferredTrack?.url !== primaryTrack?.url) trackCandidates.push(preferredTrack);
   const capturedBodies = Array.isArray(message.captionBodies) ? message.captionBodies : [];
-  const primaryBody = capturedBodies.find((item) => item?.url === primaryTrack?.url);
+  const sameCaptionLanguage = (left, right) => {
+    const leftLanguage = String(left?.effectiveLang || left?.lang || "");
+    const rightLanguage = String(right?.effectiveLang || right?.lang || "");
+    return Boolean(leftLanguage && rightLanguage) && (
+      leftLanguage === rightLanguage
+      || leftLanguage.startsWith(`${rightLanguage}-`)
+      || rightLanguage.startsWith(`${leftLanguage}-`)
+    );
+  };
+  const capturedBodyForTrack = (candidate) => {
+    if (!candidate) return null;
+    return [...capturedBodies].reverse().find((item) => {
+      if (!item?.body) return false;
+      if (item.url === candidate.url) return true;
+      const capturedTrack = VIDEO_DIGEST_YOUTUBE.captionTrackFromUrl(item.url, youtubeId);
+      return sameCaptionLanguage(capturedTrack, candidate);
+    }) || null;
+  };
+  const primaryBody = capturedBodyForTrack(primaryTrack)
+    || (preferredTrack?.url !== primaryTrack?.url ? capturedBodyForTrack(preferredTrack) : null);
   let track = primaryTrack;
   try {
     const pageTrack = VIDEO_DIGEST_YOUTUBE.captionTrackFromUrl(

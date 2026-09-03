@@ -397,6 +397,43 @@ test("YouTube 同语言静态轨为空时优先使用播放器实际请求的字
   assert.deepEqual(ctx.youtubeCaptionRequests, [capturedUrl]);
 });
 
+test("YouTube 直接复用页面捕获的字幕正文", async () => {
+  const id = "dQw4w9WgXcQ";
+  const staticUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en&source=static`;
+  const capturedUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en&source=player`;
+  const responseUrl = `${capturedUrl}&fmt=json3`;
+  const ctx = createBackground({
+    youtubeCaptionEntries: () => {
+      throw new Error("已经有页面正文时不应再次请求后台字幕地址");
+    },
+  });
+  const result = await ctx.send({
+    action: "fetchYoutubeTranscript",
+    videoId: id,
+    sourceUrl: `https://www.youtube.com/watch?v=${id}`,
+    captionTrackUrls: [capturedUrl],
+    captionBodies: [{
+      url: responseUrl,
+      contentType: "application/json",
+      body: JSON.stringify({
+        events: [{ tStartMs: 1000, dDurationMs: 1200, segs: [{ utf8: "页面官方字幕正文" }] }],
+      }),
+    }],
+    playerResponse: {
+      videoDetails: { videoId: id, title: "页面正文测试" },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [{ languageCode: "en", baseUrl: staticUrl }],
+        },
+      },
+    },
+  });
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.transcript[0].text, "页面官方字幕正文");
+  assert.deepEqual(ctx.youtubeCaptionRequests, []);
+});
+
 test("YouTube 播放器会话地址为空时回退同语言静态轨", async () => {
   const id = "dQw4w9WgXcQ";
   const staticUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en&source=static`;
