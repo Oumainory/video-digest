@@ -69,10 +69,12 @@ test("播放器详情缺失时使用页面元信息补齐视频资料", () => {
   const info = YOUTUBE.normalizeVideoInfo(null, "dQw4w9WgXcQ", "", {
     title: "页面标题",
     owner: "频道名",
+    description: "页面简介",
     duration: 123,
   });
   assert.equal(info.title, "页面标题");
   assert.equal(info.owner, "频道名");
+  assert.equal(info.description, "页面简介");
   assert.equal(info.duration, 123);
 });
 

@@ -54,6 +54,7 @@ const PROMPTS = {
   "qa.md": {
     videoTitle: "测试视频",
     ownerName: "UP 主",
+    videoDescription: "这是测试视频的简介",
     question: "用户的问题",
     transcriptText: "[0:00] 字幕句子",
   },

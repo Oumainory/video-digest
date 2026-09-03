@@ -55,7 +55,12 @@ function makeHarness({ segments = makeSegments(), cached = null } = {}) {
     }),
     ensureTranscript: async () => ({
       success: true,
-      videoInfo: { title: "测试视频", owner: "UP 主", duration: 600 },
+      videoInfo: {
+        title: "测试视频",
+        owner: "UP 主",
+        description: "概览需要知道的视频简介",
+        duration: 600,
+      },
       segments,
     }),
     updateCache: async (bvid, page, mutate) => {
@@ -171,6 +176,16 @@ test("两块全部成功：落缓存与学习资料，失败数为零", async ()
   assert.equal(stored.analysis.chapters.length >= 1, true);
   const record = await h.learningRepo.find(`${BVID}:p1`);
   assert.ok(record.analysis);
+  const overviewPrompts = h.promptVariables.filter(
+    (item) => item.file === "analysis.md" && item.heading === "用户提示词",
+  );
+  assert.ok(overviewPrompts.length > 0);
+  assert.ok(overviewPrompts.every((item) => item.vars.videoTitle === "测试视频"));
+  assert.ok(
+    overviewPrompts.every(
+      (item) => item.vars.videoDescription === "概览需要知道的视频简介",
+    ),
+  );
 });
 
 test("单块持续失败仍出结果，并如实记录失败区间", async () => {

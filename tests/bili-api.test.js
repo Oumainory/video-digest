@@ -60,6 +60,7 @@ test("分 P 视频取对应分 P 的 cid、时长与标题", () => {
   assert.equal(first.title, "第一集");
   assert.equal(first.duration, 300);
   assert.equal(first.owner, "某 UP");
+  assert.equal(first.description, "简介");
   assert.equal(first.pageCount, 2);
 
   const second = API.normalizeVideoInfo(data, 2);

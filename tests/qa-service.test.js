@@ -126,7 +126,12 @@ test("同一视频的大模型回答按原顺序成为后续上下文，定位�
       success: true,
       transcript: [{ start: 0, text: "字幕句子" }],
       segments: SEGMENTS_FIXTURE,
-      videoInfo: { title: "标题", owner: "UP", duration: 30 },
+      videoInfo: {
+        title: "标题",
+        owner: "UP",
+        description: "问答需要知道的视频简介",
+        duration: 30,
+      },
     }),
     learningRepository: () => LEARNING_STORE.createLearningRepository({
       driver: IDB.createObjectStoreDriver({ storeName: "learning", indexedDB: idb }),
@@ -138,7 +143,7 @@ test("同一视频的大模型回答按原顺序成为后续上下文，定位�
     loadPromptSection: async (file, heading, vars) =>
       heading === "系统提示词"
         ? "系统"
-        : `问题=${vars.question};字幕=${vars.transcriptText}`,
+        : `标题=${vars.videoTitle};简介=${vars.videoDescription};问题=${vars.question};字幕=${vars.transcriptText}`,
     requestAiCompletion: async ({ messages }) => {
       requests.push(messages);
       answerIndex += 1;
@@ -162,6 +167,9 @@ test("同一视频的大模型回答按原顺序成为后续上下文，定位�
   );
   assert.match(requests[1][1].content, /第一问/);
   assert.match(requests[1][2].content, /回答1/);
+  assert.match(requests[0][1].content, /标题=标题/);
+  assert.match(requests[0][1].content, /简介=问答需要知道的视频简介/);
+  assert.match(requests[1][3].content, /简介=问答需要知道的视频简介/);
   assert.equal(requests[1][2].cacheControl, true, "最后一轮历史是缓存断点");
   assert.doesNotMatch(
     requests[1].map((message) => message.content).join("\n"),
