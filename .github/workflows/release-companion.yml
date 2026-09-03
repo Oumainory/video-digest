@@ -14,6 +14,7 @@ jobs:
     runs-on: windows-latest
     env:
       VIDEO_DIGEST_ENGINE_BUNDLE_URL: ${{ vars.VIDEO_DIGEST_ENGINE_BUNDLE_URL }}
+      VIDEO_DIGEST_ENGINE_BUNDLE_SHA256: ${{ vars.VIDEO_DIGEST_ENGINE_BUNDLE_SHA256 }}
       VIDEO_DIGEST_MODEL_SOURCES_JSON: ${{ secrets.VIDEO_DIGEST_MODEL_SOURCES_JSON }}
       VIDEO_DIGEST_CHROME_EXTENSION_ID: ${{ secrets.VIDEO_DIGEST_CHROME_EXTENSION_ID }}
       VIDEO_DIGEST_EDGE_EXTENSION_ID: ${{ secrets.VIDEO_DIGEST_EDGE_EXTENSION_ID }}
@@ -24,7 +25,8 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
+          cache: npm
 
       - name: Set up Python for adapter compilation
         uses: actions/setup-python@v5
@@ -34,6 +36,7 @@ jobs:
       - name: Install companion and adapter build dependencies
         shell: pwsh
         run: |
+          npm ci
           npm ci --prefix companion
           python -m pip install --disable-pip-version-check psutil nuitka
 
@@ -43,8 +46,15 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:VIDEO_DIGEST_ENGINE_BUNDLE_URL)) {
             throw "Repository variable VIDEO_DIGEST_ENGINE_BUNDLE_URL is required. It must point to a reviewed bundle containing videocr-cli.exe, whisper-cli.exe, and ffmpeg.exe."
           }
+          if ($env:VIDEO_DIGEST_ENGINE_BUNDLE_URL -match '/latest/' -or [string]::IsNullOrWhiteSpace($env:VIDEO_DIGEST_ENGINE_BUNDLE_SHA256)) {
+            throw "The engine bundle must use a versioned URL and VIDEO_DIGEST_ENGINE_BUNDLE_SHA256."
+          }
           $bundle = Join-Path $env:RUNNER_TEMP "video-digest-engine-bundle.zip"
           Invoke-WebRequest -Uri $env:VIDEO_DIGEST_ENGINE_BUNDLE_URL -OutFile $bundle
+          $actual = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $env:VIDEO_DIGEST_ENGINE_BUNDLE_SHA256.ToLowerInvariant()) {
+            throw "Engine bundle SHA-256 mismatch."
+          }
           $bundleDir = Join-Path $env:RUNNER_TEMP "video-digest-engine-bundle"
           Expand-Archive -LiteralPath $bundle -DestinationPath $bundleDir -Force
           "VIDEO_DIGEST_VIDEOCR_CLI=$bundleDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -53,6 +63,18 @@ jobs:
           if (Test-Path -LiteralPath (Join-Path $bundleDir "ffprobe.exe")) {
             "VIDEO_DIGEST_FFPROBE=$bundleDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           }
+
+      - name: Download pinned multilingual Whisper model
+        shell: pwsh
+        run: |
+          $model = Join-Path $env:RUNNER_TEMP "ggml-base.bin"
+          $url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin"
+          Invoke-WebRequest -Uri $url -OutFile $model
+          $actual = (Get-FileHash -LiteralPath $model -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe") {
+            throw "Whisper model SHA-256 mismatch."
+          }
+          "VIDEO_DIGEST_WHISPER_MODEL=$model" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build Video Digest engine adapter
         shell: pwsh
@@ -73,6 +95,10 @@ jobs:
         shell: pwsh
         run: npm run dist --prefix companion
 
+      - name: Install Playwright Chromium
+        shell: pwsh
+        run: npx playwright install chromium
+
       - name: Build extension package
         shell: pwsh
         env:
@@ -85,8 +111,22 @@ jobs:
       - name: Run final checks
         shell: pwsh
         run: |
-          npm test
+          npm run test:coverage
           npm run check
+          npm run test:engine
+          npm run test:e2e:extension
+          npm run test:e2e:companion
+          npm run test:engine:real
+
+      - name: Install and validate release artifacts
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -LiteralPath .\companion\dist -Filter "*.exe" | Where-Object { $_.Name -notmatch '^Uninstall' } | Select-Object -First 1
+          $extension = Get-ChildItem -LiteralPath .\dist -Filter "*.zip" | Select-Object -First 1
+          if (-not $installer -or -not $extension) { throw "Release artifacts are missing." }
+          $env:VIDEO_DIGEST_INSTALLER = $installer.FullName
+          $env:VIDEO_DIGEST_EXTENSION_ZIP = $extension.FullName
+          npm run test:release
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -96,3 +136,4 @@ jobs:
             companion/dist/*.exe
             dist/*.zip
             THIRD-PARTY-NOTICES
+            engine-src/release-assets.lock.json

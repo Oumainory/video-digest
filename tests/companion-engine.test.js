@@ -58,3 +58,49 @@ test("没有发行引擎时返回可行动的错误", async () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("引擎可执行文件缺失时不留下任务配置", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "video-digest-engine-"));
+  try {
+    const media = path.join(root, "sample.mp4");
+    fs.writeFileSync(media, "placeholder");
+    fs.writeFileSync(path.join(root, "manifest.json"), JSON.stringify({
+      executable: "missing-engine.exe",
+      args: ["{{configPath}}"],
+    }));
+    await assert.rejects(
+      createEngine({ engineDir: root }).recognize({ filePath: media }),
+      (error) => error.code === "ENGINE_EXECUTABLE_MISSING",
+    );
+    assert.equal(fs.existsSync(path.join(root, ".tasks")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("取消识别会终止子进程并清理临时配置", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "video-digest-engine-"));
+  try {
+    const media = path.join(root, "sample.mp4");
+    fs.writeFileSync(media, "placeholder");
+    fs.writeFileSync(path.join(root, "manifest.json"), JSON.stringify({
+      executable: process.execPath,
+      args: ["-e", "setInterval(() => {}, 1000)"],
+    }));
+    const controller = new AbortController();
+    const recognition = createEngine({ engineDir: root }).recognize(
+      { sourceId: "cancel-test", filePath: media, fileName: "sample.mp4", mode: "ocr" },
+      { controller, signal: controller.signal },
+    );
+    setTimeout(() => {
+      controller.canceled = true;
+      controller.abort();
+    }, 80);
+    await assert.rejects(recognition, (error) => error.code === "TASK_CANCELED");
+    const taskDir = path.join(root, ".tasks");
+    assert.deepEqual(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : [], []);
+    assert.equal(controller.child?.exitCode !== null || controller.child?.signalCode !== null, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

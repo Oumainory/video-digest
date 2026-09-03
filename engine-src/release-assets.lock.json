@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "reviewedAt": "2026-09-03",
+  "platform": "windows-x64-cpu",
+  "assets": [
+    {
+      "id": "videocr-cpu",
+      "version": "v1.5.1",
+      "fileName": "videocr-cli-CPU-v1.5.1.7z",
+      "sourceUrl": "https://github.com/timminator/VideOCR/releases/download/v1.5.1/videocr-cli-CPU-v1.5.1.7z",
+      "sizeBytes": 471804781,
+      "sha256": "4380a364667ead5d7f0bdf2933b68108bcdc9f039f4e8917d5707b479056c315",
+      "license": "MIT; bundled PaddleOCR components are Apache-2.0"
+    },
+    {
+      "id": "whisper-cpp",
+      "version": "b4938",
+      "fileName": "whisper-bin-x64.zip",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp/releases/download/b4938/whisper-bin-x64.zip",
+      "sizeBytes": 8361840,
+      "sha256": "c2a4b60edb11f7e11a9191ffb50929535527d4d91c9903dbe3e554583bbbc63d",
+      "license": "MIT"
+    },
+    {
+      "id": "whisper-model-base-multilingual",
+      "version": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "fileName": "ggml-base.bin",
+      "sourceUrl": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin",
+      "sizeBytes": 147951465,
+      "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+      "license": "MIT"
+    },
+    {
+      "id": "ffmpeg-lgpl",
+      "version": "n9.0-2026-09-03",
+      "fileName": "ffmpeg-n9.0-win64-lgpl-9.0-2026-09-03.zip",
+      "sourceUrl": "",
+      "upstreamRelease": "https://github.com/BtbN/FFmpeg-Builds/releases/tag/latest",
+      "upstreamFileName": "ffmpeg-n9.0-latest-win64-lgpl-9.0.zip",
+      "sizeBytes": 147006990,
+      "sha256": "9a993f08a68764ea3c1b6fe1bc1bd42e6df9d4fee4d41efc27eb7ab9814ec6ed",
+      "license": "LGPL-2.1-or-later",
+      "distribution": "Mirror this reviewed byte-identical archive to a versioned Video Digest GitHub Release asset. Never download the mutable upstream latest URL in CI."
+    }
+  ]
+}

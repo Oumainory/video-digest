@@ -9,27 +9,85 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  unit:
+    name: Unit and coverage (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-
+          node-version: 24
+          cache: npm
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Run engine adapter tests
-        run: python -m unittest discover -s engine-src/video-digest-engine
-
-      - name: Run tests
-        run: npm test
-
-      - name: Run static checks
+      - name: Install test dependencies
+        run: npm ci
+      - name: Run coverage gate
+        run: npm run test:coverage
+      - name: Run engine adapter and asset-lock tests
+        run: npm run test:engine
+      - name: Run static and package checks
         run: npm run check
+
+  extension-e2e:
+    name: Chromium extension E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies and Chromium
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run extension E2E
+        run: npm run test:e2e:extension
+      - name: Upload Playwright diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-playwright-diagnostics
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+
+  companion-e2e:
+    name: Windows Electron E2E
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install root and companion dependencies
+        shell: pwsh
+        run: |
+          npm ci
+          npm ci --prefix companion
+      - name: Run Electron E2E
+        run: npm run test:e2e:companion
+      - name: Upload Playwright diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-playwright-diagnostics
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore

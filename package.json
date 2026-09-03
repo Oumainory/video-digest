@@ -11,9 +11,20 @@
   },
   "description": "Turn Bilibili videos into learning resources: transcripts, punctuation repair, bilingual subtitles, AI overviews, and timestamped notes. Bilibili port of youtube-digest.",
   "scripts": {
-    "test": "node --test tests/*.test.js",
+    "test": "npm run test:unit",
+    "test:unit": "node --test tests/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=75 --test-coverage-functions=85 tests/*.test.js",
+    "test:e2e:extension": "playwright test tests/e2e/extension.spec.js",
+    "test:e2e:companion": "playwright test tests/e2e/companion.spec.js",
+    "test:engine": "python -m unittest discover -s engine-src/video-digest-engine && node scripts/verify-engine-assets.cjs",
+    "test:engine:real": "node scripts/test-real-engine.cjs",
+    "test:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-release.ps1",
+    "test:all": "npm run test:coverage && npm run check && npm run test:e2e:extension && npm run test:e2e:companion && npm run test:engine",
     "check": "node scripts/check.cjs",
     "package": "bash scripts/package.sh",
     "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
   }
 }

@@ -45,4 +45,27 @@ test("Windows 打包脚本与桌面发行准备脚本存在", () => {
   assert.equal(fs.existsSync(path.join(__dirname, "..", "scripts", "package.ps1")), true);
   assert.equal(fs.existsSync(path.join(__dirname, "..", "companion", "build-release.cjs")), true);
   assert.equal(fs.existsSync(path.join(__dirname, "..", "companion", "model-sources.example.json")), true);
+  assert.equal(fs.existsSync(path.join(__dirname, "..", "scripts", "test-release.ps1")), true);
+  assert.equal(fs.existsSync(path.join(__dirname, "..", "docs", "release-test-checklist.md")), true);
+});
+
+test("真实引擎资产全部固定版本、大小、SHA 和许可证", () => {
+  const lock = JSON.parse(fs.readFileSync(
+    path.join(__dirname, "..", "engine-src", "release-assets.lock.json"),
+    "utf8",
+  ));
+  assert.equal(lock.schemaVersion, 1);
+  assert.deepEqual(lock.assets.map((asset) => asset.id), [
+    "videocr-cpu",
+    "whisper-cpp",
+    "whisper-model-base-multilingual",
+    "ffmpeg-lgpl",
+  ]);
+  for (const asset of lock.assets) {
+    assert.match(asset.sha256, /^[a-f0-9]{64}$/);
+    assert.ok(asset.sizeBytes > 0);
+    assert.ok(asset.version);
+    assert.ok(asset.license);
+    assert.doesNotMatch(asset.sourceUrl || "", /\/releases\/download\/latest\//);
+  }
 });

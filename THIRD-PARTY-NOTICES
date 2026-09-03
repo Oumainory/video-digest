@@ -33,6 +33,7 @@ the store listing alone.
 3. VideOCR
 -----------
 Repository: https://github.com/timminator/VideOCR
+Pinned release: v1.5.1, CPU CLI archive (SHA-256 recorded in engine-src/release-assets.lock.json)
 License: MIT
 Copyright in the upstream license: Copyright (c) 2019 Yi Ge
 
@@ -54,6 +55,8 @@ version must be distributed with any desktop engine containing it.
 5. whisper.cpp
 --------------
 Repository: https://github.com/ggml-org/whisper.cpp
+Pinned Windows CPU build: b4938
+Pinned multilingual model: ggml-base.bin at Hugging Face commit 5359861c739e955e79d9a303bcbc70fb988958b1
 Copyright: Copyright (c) 2023-2026 The ggml authors
 License: MIT
 
@@ -62,6 +65,10 @@ options used for a release must be recorded in the release artifact manifest.
 
 6. FFmpeg and media dependencies
 ---------------------------------
+Pinned release family: BtbN n9.0 Windows x64 LGPL build reviewed on 2026-09-03.
+The mutable upstream `latest` URL is not used by CI; the reviewed bytes must be
+mirrored under a versioned Video Digest Release name and verified by SHA-256.
+
 If FFmpeg or FFmpeg libraries are bundled in a release, the exact build,
 license mode (LGPL or GPL), source offer, and corresponding notices must be
 recorded here and shipped with the installer. The release process must not

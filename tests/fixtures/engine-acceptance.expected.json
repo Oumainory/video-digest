@@ -1,0 +1,13 @@
+{
+  "duration": 10,
+  "sha256": "8abaa6426821a8a997bc5c692b9f3191fc11ff09a3e17f50bc308e8a5eb2eb79",
+  "ocr": [
+    { "start": 0.5, "end": 4.5, "text": "第一行 Video Digest 测试" },
+    { "start": 5, "end": 9, "text": "第二行 字幕识别正常" }
+  ],
+  "asrReference": "hello video digest this is a subtitle test",
+  "limits": {
+    "ocrStartErrorSeconds": 1,
+    "asrWordErrorRate": 0.3
+  }
+}

@@ -122,3 +122,100 @@ test("Native Messaging 桥接按 requestId 配对响应，并把事件交给扩�
   assert.deepEqual(events, [{ event: "taskChanged", payload: { task: { id: "task-1" } } }]);
   assert.equal(typeof onDisconnect, "function");
 });
+
+test("Native Messaging 桥接会传播服务端错误并忽略无效消息", async () => {
+  let onMessage;
+  const port = {
+    onMessage: { addListener(listener) { onMessage = listener; } },
+    onDisconnect: { addListener() {} },
+    postMessage(message) {
+      onMessage({ unexpected: true });
+      queueMicrotask(() => onMessage({
+        protocol: PROTOCOL.PROTOCOL,
+        version: PROTOCOL.VERSION,
+        type: "error",
+        requestId: message.requestId,
+        success: false,
+        error: "ENGINE_FAILED",
+        message: "识别引擎失败",
+      }));
+    },
+  };
+  const bridge = BRIDGE.createCompanionBridge({ connectNative: () => port });
+  await assert.rejects(
+    bridge.request(PROTOCOL.ACTIONS.STATUS),
+    (error) => error.code === "ENGINE_FAILED" && error.message === "识别引擎失败",
+  );
+});
+
+test("Native Messaging 桥接覆盖连接失败、发送失败、超时和主动关闭", async () => {
+  assert.throws(() => BRIDGE.createCompanionBridge(), /connectNative/);
+
+  const unavailable = BRIDGE.createCompanionBridge({ connectNative: () => ({}) });
+  await assert.rejects(unavailable.request("status"), (error) => error.code === "COMPANION_UNAVAILABLE");
+
+  const missing = BRIDGE.createCompanionBridge({ connectNative() { throw new Error("missing"); } });
+  await assert.rejects(missing.request("status"), (error) => error.code === "COMPANION_NOT_INSTALLED");
+
+  let disconnect;
+  const brokenPort = {
+    onMessage: { addListener() {} },
+    onDisconnect: { addListener(listener) { disconnect = listener; } },
+    postMessage() { throw new Error("send failed"); },
+  };
+  const broken = BRIDGE.createCompanionBridge({ connectNative: () => brokenPort });
+  await assert.rejects(broken.request("status"), (error) => error.code === "COMPANION_SEND_FAILED");
+
+  let posted;
+  const timeoutPort = {
+    onMessage: { addListener() {} },
+    onDisconnect: { addListener() {} },
+    postMessage(message) { posted = message; },
+    disconnect() {},
+  };
+  const timed = BRIDGE.createCompanionBridge({ connectNative: () => timeoutPort, timeoutMs: 100 });
+  await assert.rejects(timed.request("status"), (error) => error.code === "COMPANION_TIMEOUT");
+  assert.ok(posted.requestId);
+
+  const pending = broken.request("status");
+  disconnect();
+  await assert.rejects(pending, /无法把请求发送/);
+  timed.close();
+  assert.equal(timed.getPort(), null);
+});
+
+test("Native Messaging 桥接断线会拒绝在途请求并在下次请求重连", async () => {
+  const ports = [];
+  const connectNative = () => {
+    let onMessage;
+    let onDisconnect;
+    const port = {
+      onMessage: { addListener(listener) { onMessage = listener; } },
+      onDisconnect: { addListener(listener) { onDisconnect = listener; } },
+      postMessage(message) { port.lastMessage = message; },
+      disconnect() {},
+      emit(message) { onMessage(message); },
+      drop() { port.error = { message: "pipe closed" }; onDisconnect(); },
+    };
+    ports.push(port);
+    return port;
+  };
+  const bridge = BRIDGE.createCompanionBridge({ connectNative, timeoutMs: 1000 });
+  const first = bridge.request("status");
+  await new Promise((resolve) => setImmediate(resolve));
+  ports[0].drop();
+  await assert.rejects(first, (error) => error.code === "COMPANION_DISCONNECTED");
+
+  const second = bridge.request("status");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(ports.length, 2);
+  ports[1].emit({
+    protocol: PROTOCOL.PROTOCOL,
+    version: PROTOCOL.VERSION,
+    type: "response",
+    requestId: ports[1].lastMessage.requestId,
+    success: true,
+    payload: { running: true },
+  });
+  assert.deepEqual(await second, { running: true });
+});

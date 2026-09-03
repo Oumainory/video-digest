@@ -65,6 +65,16 @@ function createEngine({ engineDir } = {}) {
       );
     }
 
+    const executable = path.isAbsolute(manifest.executable)
+      ? manifest.executable
+      : path.join(baseDir, manifest.executable);
+    if (!fs.existsSync(executable)) {
+      throw engineError(
+        "ENGINE_EXECUTABLE_MISSING",
+        "本地识别引擎文件缺失，请重新安装桌面识别软件。",
+      );
+    }
+
     const taskDir = path.join(baseDir, ".tasks");
     fs.mkdirSync(taskDir, { recursive: true });
     const configPath = path.join(taskDir, `${protocol.createId("config")}.json`);
@@ -79,16 +89,6 @@ function createEngine({ engineDir } = {}) {
       sourceId: config.sourceId,
       modelPaths: config.modelPaths || {},
     }), "utf8");
-
-    const executable = path.isAbsolute(manifest.executable)
-      ? manifest.executable
-      : path.join(baseDir, manifest.executable);
-    if (!fs.existsSync(executable)) {
-      throw engineError(
-        "ENGINE_EXECUTABLE_MISSING",
-        "本地识别引擎文件缺失，请重新安装桌面识别软件。",
-      );
-    }
     const args = (Array.isArray(manifest.args) ? manifest.args : ["{{configPath}}"])
       .map((arg) => replaceTemplate(arg, configPath, config));
     const child = spawn(executable, args, {

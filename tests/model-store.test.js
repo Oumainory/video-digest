@@ -130,6 +130,28 @@ test("模型下载源只接受 HTTPS，未配置时不会伪装成可下载", as
   }
 });
 
+test("测试开关只放行本机 HTTP，不会放行远程明文模型源", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "video-digest-models-"));
+  const sourceFile = path.join(root, "model-sources.json");
+  const writeSource = (url) => fs.writeFileSync(sourceFile, JSON.stringify({
+    "whisper-multilingual": { url },
+  }));
+  try {
+    writeSource("http://127.0.0.1:43210/model.bin");
+    const store = new ModelStore({
+      root: path.join(root, "models"),
+      stateFile: path.join(root, "state.json"),
+      sourceFiles: [sourceFile],
+      allowInsecureLocalhost: true,
+    });
+    assert.equal((await store.list())[0].sourceConfigured, true);
+    writeSource("http://models.example.test/model.bin");
+    assert.equal((await store.list())[0].sourceConfigured, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("下载内容与声明的 SHA-256 不一致时拒绝并清理临时文件", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "video-digest-models-"));
   const models = path.join(root, "models");

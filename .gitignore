@@ -51,6 +51,11 @@ companion/model-sources.json
 *.download
 .tasks/
 
+# The only media/subtitle files kept in Git are the small, project-owned
+# deterministic acceptance fixture and its source/expectations.
+!tests/fixtures/engine-acceptance.mp4
+!tests/fixtures/engine-acceptance.ass
+
 # Local research, agent scratch files, and reference extension copies
 .codex/
 .local/
@@ -80,6 +85,8 @@ desktop.ini
 # Test artifacts
 coverage/
 test-results/
+playwright-report/
+.playwright/
 .nyc_output/
 .pytest_cache/
 .coverage

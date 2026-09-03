@@ -60,9 +60,8 @@ const companionProtocol = typeof BILI_COMPANION === "undefined"
 
 // 本地 OCR/ASR 只通过 Native Messaging 连接桌面伴生软件。扩展不暴露
 // localhost、端口或运行时细节；桌面软件安装时注册同名 host 即可被发现。
-// Node 单元测试只加载 background.js 并注入业务模块，不模拟 Native Messaging；
-// 浏览器正式运行时 importScripts 会提供真实桥接实现。保留一个只报错的降级
-// 对象，避免新能力影响既有 B 站字幕/笔记测试和 service worker 启动。
+// 浏览器运行时 importScripts 会提供真实桥接实现。保留一个只报错的降级
+// 对象，避免共享模块加载失败时连 B 站字幕/笔记入口也无法启动。
 const companionBridge = typeof BILI_COMPANION_BRIDGE === "undefined"
   ? {
       request: async () => {

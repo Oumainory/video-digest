@@ -21,6 +21,8 @@ const TASKS = require("../lib/task-manager.js");
 const NOTE_DB = require("../lib/note-db.js");
 const IDB = require("../lib/idb.js");
 const YOUTUBE = require("../lib/youtube-api.js");
+const COMPANION_PROTOCOL = require("../lib/companion-protocol.js");
+const COMPANION_BRIDGE = require("../lib/companion-bridge.js");
 const { createMemoryIndexedDb } = require("./helpers/memory-idb.js");
 const { memoryStorage } = require("./helpers/memory-storage.js");
 
@@ -36,6 +38,7 @@ function createBackground({
   youtubeCaptionEntries = [
     { text: "captured subtitle", start: 1, duration: 1.2 },
   ],
+  companionPort = null,
 } = {}) {
   const storage = suppliedStorage || memoryStorage(initial);
   const sessionStorage = memoryStorage({});
@@ -128,6 +131,11 @@ function createBackground({
         onRemoved: { addListener(listener) { windowRemovedListener = listener; } },
       },
       runtime: {
+        connectNative(hostName) {
+          if (!companionPort) throw new Error(`Native host unavailable: ${hostName}`);
+          companionPort.hostName = hostName;
+          return companionPort;
+        },
         getURL: (value) => value,
         openOptionsPage() {},
         onInstalled: { addListener() {} },
@@ -181,6 +189,8 @@ function createBackground({
       ...YOUTUBE,
       fetchCaptionTrackContent: async () => structuredClone(youtubeCaptionEntries),
     },
+    BILI_COMPANION: COMPANION_PROTOCOL,
+    BILI_COMPANION_BRIDGE: COMPANION_BRIDGE,
   };
   context.globalThis = context;
   vm.createContext(context);
@@ -370,6 +380,46 @@ test("YouTube 后台空响应经页面原文重试后成功解析", async () => 
   });
   assert.equal(recovered.success, true, JSON.stringify(recovered));
   assert.equal(recovered.transcript[0].text, "页面会话恢复的字幕");
+});
+
+test("后台把桌面操作映射到 Native Messaging，并转发任务事件", async () => {
+  let onMessage;
+  const posted = [];
+  const companionPort = {
+    onMessage: { addListener(listener) { onMessage = listener; } },
+    onDisconnect: { addListener() {} },
+    postMessage(message) {
+      posted.push(message);
+      queueMicrotask(() => onMessage({
+        protocol: COMPANION_PROTOCOL.PROTOCOL,
+        version: COMPANION_PROTOCOL.VERSION,
+        type: "response",
+        requestId: message.requestId,
+        success: true,
+        payload: { task: { id: "desktop-task", state: "queued" } },
+      }));
+    },
+  };
+  const ctx = createBackground({ companionPort });
+  const reply = await ctx.send({ action: "startLocalTask", payload: { mode: "ocr", filePath: "C:/fixture.mp4" } });
+  assert.equal(companionPort.hostName, COMPANION_PROTOCOL.HOST_NAME);
+  assert.equal(posted[0].action, COMPANION_PROTOCOL.ACTIONS.START_TASK);
+  assert.equal(posted[0].payload.mode, "ocr");
+  assert.equal(reply.success, true);
+  assert.equal(reply.task.id, "desktop-task");
+
+  onMessage({
+    protocol: COMPANION_PROTOCOL.PROTOCOL,
+    version: COMPANION_PROTOCOL.VERSION,
+    type: "event",
+    event: COMPANION_PROTOCOL.EVENTS.TASK_CHANGED,
+    payload: { task: { id: "desktop-task", state: "running", done: 1, total: 2 } },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(ctx.broadcasts.some((message) =>
+    message.action === "companionTaskChanged"
+    && message.task.id === "desktop-task"
+    && message.task.state === "running"));
 });
 
 test("迁移失败后不会卡在降级状态，下一次操作会重试", async () => {

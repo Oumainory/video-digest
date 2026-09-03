@@ -119,11 +119,18 @@ function randomSuffix() {
 }
 
 class ModelStore {
-  constructor({ root, stateFile, sourceFiles = [], catalog = MODEL_CATALOG } = {}) {
+  constructor({
+    root,
+    stateFile,
+    sourceFiles = [],
+    catalog = MODEL_CATALOG,
+    allowInsecureLocalhost = false,
+  } = {}) {
     this.root = root;
     this.stateFile = stateFile;
     this.sourceFiles = sourceFiles;
     this.catalog = catalog;
+    this.allowInsecureLocalhost = Boolean(allowInsecureLocalhost);
   }
 
   readState() {
@@ -155,7 +162,10 @@ class ModelStore {
     let url = "";
     try {
       const parsed = new URL(String(source.url || ""));
-      if (parsed.protocol === "https:") url = parsed.toString();
+      const testLocalhost = this.allowInsecureLocalhost
+        && parsed.protocol === "http:"
+        && ["127.0.0.1", "localhost", "::1"].includes(parsed.hostname);
+      if (parsed.protocol === "https:" || testLocalhost) url = parsed.toString();
     } catch (error) {
       // Only HTTPS model sources are accepted.
     }

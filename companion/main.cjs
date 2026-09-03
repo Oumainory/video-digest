@@ -12,6 +12,12 @@ const path = require("node:path");
 const net = require("node:net");
 const { app, BrowserWindow, ipcMain } = require("electron");
 
+// 自动化验收需要使用一次性的用户目录和假引擎，避免碰到开发者的真实数据。
+// 这些覆盖项只改变进程内部路径，不改变扩展与伴生程序之间的消息协议。
+if (process.env.VIDEO_DIGEST_TEST_USER_DATA) {
+  app.setPath("userData", path.resolve(process.env.VIDEO_DIGEST_TEST_USER_DATA));
+}
+
 function loadProtocol() {
   const candidates = [
     path.join(__dirname, "..", "lib", "companion-protocol.js"),
@@ -127,16 +133,18 @@ const modelStore = new ModelStore({
   root: userDataPath("models"),
   stateFile: userDataPath("model-state.json"),
   sourceFiles: [
+    process.env.VIDEO_DIGEST_MODEL_SOURCES_FILE,
     userDataPath("model-sources.json"),
     app.isPackaged
       ? path.join(process.resourcesPath, "model-sources.json")
       : path.join(__dirname, "model-sources.json"),
-  ],
+  ].filter(Boolean),
+  allowInsecureLocalhost: process.env.VIDEO_DIGEST_TEST_ALLOW_HTTP === "1",
 });
 const engine = createEngine({
-  engineDir: app.isPackaged
+  engineDir: process.env.VIDEO_DIGEST_ENGINE_DIR || (app.isPackaged
     ? path.join(process.resourcesPath, "engine")
-    : path.join(__dirname, "engine"),
+    : path.join(__dirname, "engine")),
 });
 
 function sendRenderer(event, value) {
@@ -393,6 +401,10 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      // preload 需要读取打包进 resources 的共享协议模块。Electron 的沙箱
+      // preload 只允许极少数内置模块，会直接拒绝 node:path/本地 require。
+      // 页面仍保持 contextIsolation 且不暴露 Node，只开放下方白名单 IPC。
+      sandbox: false,
       preload: path.join(__dirname, "preload.cjs"),
     },
   });

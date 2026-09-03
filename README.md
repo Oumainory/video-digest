@@ -50,12 +50,27 @@ Windows 桌面伴生程序
 
 ## 开发环境
 
-扩展本身是无构建步骤的 Manifest V3 项目。运行测试：
+扩展本身是无构建步骤的 Manifest V3 项目。首次安装测试依赖：
 
 ```powershell
-npm test
-npm run check
+npm ci
+npm ci --prefix companion
+npx playwright install chromium
 ```
+
+三层测试入口：
+
+```powershell
+npm run test:unit          # Node 单元测试
+npm run test:coverage      # 行 90% / 分支 75% / 函数 85%
+npm run test:e2e:extension # 持久化 Chromium + 完整扩展
+npm run test:e2e:companion # 真正的 Electron main/preload/renderer
+npm run test:engine        # Python 适配器 + 发行资产锁
+npm run test:all           # 日常完整自动化门禁
+npm run test:release       # Windows 安装/Native Messaging/真实引擎/卸载
+```
+
+真实网站、真实模型供应商和 Chrome/Edge 浏览器外壳按 [`docs/release-test-checklist.md`](docs/release-test-checklist.md) 人工验收。真实引擎版本与 SHA-256 固定在 [`engine-src/release-assets.lock.json`](engine-src/release-assets.lock.json)；二进制和模型只进入 Release/CI 缓存，不进入 Git。
 
 生成扩展 ZIP：
 
