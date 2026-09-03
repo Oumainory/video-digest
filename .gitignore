@@ -51,12 +51,23 @@ companion/model-sources.json
 *.download
 .tasks/
 
+# Local research, agent scratch files, and reference extension copies
+.codex/
+.local/
+scratch/
+tmp/
+temp/
+monica-analysis*
+reference-extensions/
+codex-clipboard-*.png
+
 # Local configuration and credentials
 .env
 .env.*
 !.env.example
 *.local.json
 secrets/
+*.pem
 
 # Operating-system/editor files
 .DS_Store
@@ -70,3 +81,6 @@ desktop.ini
 coverage/
 test-results/
 .nyc_output/
+.pytest_cache/
+.coverage
+htmlcov/
