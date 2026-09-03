@@ -208,7 +208,7 @@
     button.id = DIGEST_BUTTON_ID;
     button.type = "button";
     button.textContent = "Digest";
-    button.title = "打开 Digest for Bilibili 侧边栏";
+    button.title = "打开 video-digest 侧边栏";
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();

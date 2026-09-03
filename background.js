@@ -466,6 +466,18 @@ function setTabPanelEnabled(tabId, url, enabled = true) {
   });
 }
 
+async function configureWindowPanels(ownerTab) {
+  if (!Number.isInteger(ownerTab?.windowId) || !Number.isInteger(ownerTab?.id)) return;
+  const tabs = await chrome.tabs.query({ windowId: ownerTab.windowId });
+  await Promise.all(
+    tabs.map((tab) => setTabPanelEnabled(
+      tab.id,
+      tab.url || tab.pendingUrl,
+      tab.id === ownerTab.id,
+    )),
+  );
+}
+
 async function initializeTabPanel(tab) {
   if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.windowId)) return;
   await loadPanelOwners();
@@ -476,14 +488,22 @@ async function initializeTabPanel(tab) {
   );
 }
 
-async function syncActiveTabPanel() {
+async function syncAllTabPanels() {
   if (!chrome.tabs?.query) return;
   try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    await initializeTabPanel(tab);
+    const tabs = await chrome.tabs.query({});
+    await Promise.all(tabs.map((tab) => initializeTabPanel(tab)));
   } catch (error) {
-    console.warn("[Bilibili Digest] 无法初始化当前标签页侧边栏：", error);
+    console.warn("[video-digest] 无法初始化标签页侧边栏：", error);
   }
+}
+
+// 新标签页在真正切过去前先写好 tab-specific 状态；如果等 onActivated
+// 以后才 disabled，Edge 会把原标签页的面板当成“已关闭”而不是暂时隐藏。
+if (chrome.tabs?.onCreated?.addListener) {
+  chrome.tabs.onCreated.addListener((tab) => {
+    void initializeTabPanel(tab);
+  });
 }
 
 if (chrome.tabs?.onActivated?.addListener) {
@@ -543,7 +563,7 @@ if (chrome.windows?.onRemoved?.addListener) {
 function initializeOnce() {
   restrictStorageAccess();
   enableActionClickToOpen();
-  void syncActiveTabPanel();
+  void syncAllTabPanels();
 }
 
 chrome.runtime.onStartup.addListener(initializeOnce);
@@ -567,12 +587,13 @@ async function handleOpenSidePanel(tab) {
   }
 
   const ownerSaved = rememberPanelOwner(tab);
+  const windowConfigured = configureWindowPanels(tab);
   // 两个调用都在用户手势的同步调用栈里发起。先 await setOptions 会让部分
   // Chromium 版本认为手势已经结束，从而拒绝 open()。
   const enabled = setTabPanelEnabled(tab.id, tab.url, true);
   const opened = chrome.sidePanel.open({ tabId: tab.id });
   try {
-    await Promise.all([ownerSaved, enabled, opened]);
+    await Promise.all([ownerSaved, windowConfigured, enabled, opened]);
   } catch (error) {
     console.warn("[Bilibili Digest] 打开侧边栏被拒绝：", error);
     return { success: false, needsToolbarClick: true };
@@ -640,9 +661,31 @@ async function handleYoutubeTranscript(message = {}) {
     : settings.subtitleLangPreference;
   const track = VIDEO_DIGEST_YOUTUBE.pickCaptionTrack(tracks, preference);
   try {
-    const entries = await VIDEO_DIGEST_YOUTUBE.fetchCaptionTrackContent(track.url);
+    const pageTrack = VIDEO_DIGEST_YOUTUBE.captionTrackFromUrl(
+      message.pageCaptionTrackUrl,
+      youtubeId,
+    );
+    const pageTrackMatches = Boolean(
+      pageTrack
+      && pageTrack.lang === track.lang
+      && pageTrack.url === track.url,
+    );
+    const entries = pageTrackMatches && typeof message.pageCaptionBody === "string"
+      ? VIDEO_DIGEST_YOUTUBE.parseCaptionTrackContent(
+        message.pageCaptionBody,
+        message.pageCaptionContentType,
+      )
+      : await VIDEO_DIGEST_YOUTUBE.fetchCaptionTrackContent(track.url);
     if (!entries.length) {
-      return { success: false, error: "EMPTY_TRANSCRIPT", message: "YouTube 字幕文件是空的。" };
+      return {
+        success: false,
+        error: "EMPTY_TRANSCRIPT",
+        message: "YouTube 字幕文件是空的。",
+        // 后台请求可能拿不到用户所在地区/登录态下的字幕。只把已经校验并
+        // 选中的 YouTube URL 交回当前页面重试一次。
+        needsPageCaptionFetch: !message.pageCaptionFetchAttempted,
+        pageCaptionTrackUrl: track.url,
+      };
     }
     const videoInfo = VIDEO_DIGEST_YOUTUBE.normalizeVideoInfo(
       message.playerResponse,
@@ -669,6 +712,8 @@ async function handleYoutubeTranscript(message = {}) {
       success: false,
       error: error.code || "TRANSCRIPT_FETCH_FAILED",
       message: error.message || "YouTube 字幕获取失败。",
+      needsPageCaptionFetch: !message.pageCaptionFetchAttempted,
+      pageCaptionTrackUrl: track.url,
     };
   }
 }

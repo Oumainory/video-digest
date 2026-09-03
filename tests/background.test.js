@@ -33,6 +33,9 @@ function createBackground({
   storage: suppliedStorage,
   aiReply = null,
   browserTabs = [],
+  youtubeCaptionEntries = [
+    { text: "captured subtitle", start: 1, duration: 1.2 },
+  ],
 } = {}) {
   const storage = suppliedStorage || memoryStorage(initial);
   const sessionStorage = memoryStorage({});
@@ -53,6 +56,7 @@ function createBackground({
   let messageListener;
   let actionClickListener;
   let tabActivatedListener;
+  let tabCreatedListener;
   let tabUpdatedListener;
   let tabRemovedListener;
   let windowFocusListener;
@@ -114,6 +118,7 @@ function createBackground({
           );
         },
         onActivated: { addListener(listener) { tabActivatedListener = listener; } },
+        onCreated: { addListener(listener) { tabCreatedListener = listener; } },
         onUpdated: { addListener(listener) { tabUpdatedListener = listener; } },
         onRemoved: { addListener(listener) { tabRemovedListener = listener; } },
       },
@@ -174,9 +179,7 @@ function createBackground({
     BILI_IDB: IDB,
     VIDEO_DIGEST_YOUTUBE: {
       ...YOUTUBE,
-      fetchCaptionTrackContent: async () => [
-        { text: "captured subtitle", start: 1, duration: 1.2 },
-      ],
+      fetchCaptionTrackContent: async () => structuredClone(youtubeCaptionEntries),
     },
   };
   context.globalThis = context;
@@ -202,6 +205,7 @@ function createBackground({
     events: {
       actionClick(tab) { actionClickListener?.(tab); },
       tabActivated(info) { return tabActivatedListener?.(info); },
+      tabCreated(tab) { return tabCreatedListener?.(tab); },
       tabUpdated(tabId, changeInfo, tab) { tabUpdatedListener?.(tabId, changeInfo, tab); },
       tabRemoved(tabId, info) { tabRemovedListener?.(tabId, info); },
       windowFocus(windowId) { return windowFocusListener?.(windowId); },
@@ -289,6 +293,41 @@ test("侧边栏按窗口记住明确打开的标签页，不跟到另一个窗�
   );
 });
 
+test("打开前预先禁用同窗口其它标签，切回时保留原面板状态", async () => {
+  const owner = {
+    id: 31,
+    windowId: 7,
+    active: true,
+    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  };
+  const other = {
+    id: 32,
+    windowId: 7,
+    active: false,
+    url: "https://www.bilibili.com/video/BV1xx411c7mD",
+  };
+  const ctx = createBackground({ browserTabs: [owner, other] });
+
+  ctx.events.actionClick(owner);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const ownerEnabled = ctx.panelCalls.find((call) =>
+    call.method === "options" && call.value.tabId === owner.id && call.value.enabled === true,
+  );
+  const otherDisabled = ctx.panelCalls.find((call) =>
+    call.method === "options" && call.value.tabId === other.id && call.value.enabled === false,
+  );
+  assert.ok(ownerEnabled, "打开前必须把所属标签设置为可用");
+  assert.ok(otherDisabled, "切换前必须预先禁用其它标签，不能等激活后才处理");
+
+  await ctx.events.tabActivated({ tabId: other.id });
+  await ctx.events.tabActivated({ tabId: owner.id });
+  const lastOwnerCall = ctx.panelCalls
+    .filter((call) => call.method === "options" && call.value.tabId === owner.id)
+    .at(-1);
+  assert.equal(lastOwnerCall.value.enabled, true, "切回所属标签时仍须保持面板可用");
+});
+
 test("YouTube 播放器响应缺失时使用当前视频捕获的官方字幕 URL", async () => {
   const ctx = createBackground();
   const result = await ctx.send({
@@ -305,6 +344,32 @@ test("YouTube 播放器响应缺失时使用当前视频捕获的官方字幕 UR
   assert.equal(result.videoInfo.title, "页面标题");
   assert.equal(result.language, "en");
   assert.equal(result.isAiSubtitle, true);
+});
+
+test("YouTube 后台空响应经页面原文重试后成功解析", async () => {
+  const ctx = createBackground({ youtubeCaptionEntries: [] });
+  const request = {
+    action: "fetchYoutubeTranscript",
+    videoId: "dQw4w9WgXcQ",
+    sourceUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    captionTrackUrl:
+      "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en",
+    pageInfo: { title: "页面标题", owner: "频道名", duration: 120 },
+  };
+  const empty = await ctx.send(request);
+  assert.equal(empty.needsPageCaptionFetch, true);
+  assert.equal(empty.pageCaptionTrackUrl, request.captionTrackUrl);
+
+  const recovered = await ctx.send({
+    ...request,
+    pageCaptionFetchAttempted: true,
+    pageCaptionTrackUrl: empty.pageCaptionTrackUrl,
+    pageCaptionContentType: "text/xml",
+    pageCaptionBody:
+      '<transcript><text start="2" dur="1.5">页面会话恢复的字幕</text></transcript>',
+  });
+  assert.equal(recovered.success, true, JSON.stringify(recovered));
+  assert.equal(recovered.transcript[0].text, "页面会话恢复的字幕");
 });
 
 test("迁移失败后不会卡在降级状态，下一次操作会重试", async () => {

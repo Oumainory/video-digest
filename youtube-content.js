@@ -138,6 +138,44 @@
     return null;
   }
 
+  async function fetchCaptionFromPage(trackUrl, id) {
+    if (!id || typeof globalThis.fetch !== "function") return null;
+    try {
+      const base = new URL(String(trackUrl || ""));
+      const hostname = base.hostname.toLowerCase();
+      if (
+        base.protocol !== "https:"
+        || !(hostname === "youtube.com" || hostname.endsWith(".youtube.com"))
+        || base.pathname !== "/api/timedtext"
+        || base.searchParams.get("v") !== id
+      ) return null;
+
+      const candidates = [base];
+      if (base.searchParams.get("fmt") !== "json3") {
+        const json3 = new URL(base);
+        json3.searchParams.set("fmt", "json3");
+        candidates.push(json3);
+      }
+      for (const url of candidates) {
+        const response = await globalThis.fetch(url.toString(), {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!response?.ok) continue;
+        const body = await response.text();
+        if (body.trim()) {
+          return {
+            body,
+            contentType: String(response.headers?.get?.("content-type") || ""),
+          };
+        }
+      }
+    } catch (error) {
+      // 后台会保留原始 EMPTY_TRANSCRIPT 错误，页面重试失败不覆盖它。
+    }
+    return null;
+  }
+
   function readVideoInfo() {
     const video = videoElement();
     const title = document.querySelector("h1.ytd-watch-metadata yt-formatted-string")
@@ -169,7 +207,7 @@
       const fetched = await fetchWatchPlayerResponse(id);
       if (fetched) responseData = fetched;
     }
-    const response = await chrome.runtime.sendMessage({
+    const request = {
       action: "fetchYoutubeTranscript",
       videoId: id,
       sourceUrl: location.href,
@@ -178,7 +216,20 @@
       pageInfo: readVideoInfo(),
       languagePreference,
       forceRefresh,
-    });
+    };
+    let response = await chrome.runtime.sendMessage(request);
+    if (response?.needsPageCaptionFetch && response.pageCaptionTrackUrl) {
+      const pageCaption = await fetchCaptionFromPage(response.pageCaptionTrackUrl, id);
+      if (pageCaption) {
+        response = await chrome.runtime.sendMessage({
+          ...request,
+          pageCaptionFetchAttempted: true,
+          pageCaptionTrackUrl: response.pageCaptionTrackUrl,
+          pageCaptionBody: pageCaption.body,
+          pageCaptionContentType: pageCaption.contentType,
+        });
+      }
+    }
     return response;
   }
 

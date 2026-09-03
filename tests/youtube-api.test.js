@@ -90,15 +90,24 @@ test("解析 YouTube json3 与 XML 字幕正文", () => {
 
   const xml = YOUTUBE.normalizeXml('<transcript><text start="1.5" dur="2">A &amp; B</text></transcript>');
   assert.deepEqual(xml, [{ text: "A & B", start: 1.5, duration: 2 }]);
+  assert.deepEqual(
+    YOUTUBE.parseCaptionTrackContent(
+      '<transcript><text start="3" dur="1.5">页面会话字幕</text></transcript>',
+      "text/xml",
+    ),
+    [{ text: "页面会话字幕", start: 3, duration: 1.5 }],
+  );
 });
 
 test("字幕下载优先请求 json3，并兼容文本响应", async () => {
   let requested;
+  let credentials;
   const entries = await YOUTUBE.fetchCaptionTrackContent(
     "https://www.youtube.com/api/timedtext?v=1",
     {
-      fetchImpl: async (url) => {
+      fetchImpl: async (url, options) => {
         requested = url;
+        credentials = options.credentials;
         return new Response(JSON.stringify({ events: [{ tStartMs: 0, dDurationMs: 1, segs: [{ utf8: "ok" }] }] }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -107,5 +116,6 @@ test("字幕下载优先请求 json3，并兼容文本响应", async () => {
     },
   );
   assert.match(requested, /fmt=json3/);
+  assert.equal(credentials, "include");
   assert.equal(entries[0].text, "ok");
 });

@@ -25,7 +25,7 @@ test("商店主语言声明为简体中文并随安装包发布本地化消息",
   assert.equal(manifest.name, "__MSG_extensionName__");
   assert.equal(manifest.description, "__MSG_extensionDescription__");
 
-  assert.equal(localizedMessages.extensionName.message, "Digest for Bilibili");
+  assert.equal(localizedMessages.extensionName.message, "video-digest");
   assert.ok(localizedMessages.extensionDescription.message.length > 0);
   assert.ok(localizedMessages.extensionDescription.message.length <= 132);
   assert.match(readText("scripts/package.sh"), /DIRS=\([^)]*_locales[^)]*\)/);
@@ -74,6 +74,13 @@ test("侧边栏绑定明确打开的标签页，并在窗口切换时恢复各�
     /windows\.onFocusChanged\.addListener/,
     "切换浏览器窗口不会触发 tabs.onActivated，需要单独同步",
   );
+});
+
+test("用户可见标题统一为项目文件夹名", () => {
+  assert.equal(manifestName, "video-digest");
+  assert.equal(manifest.action.default_title, "打开 video-digest");
+  assert.match(readText("sidepanel.html"), /<title>video-digest<\/title>/);
+  assert.match(readText("options.html"), /<title>video-digest 设置<\/title>/);
 });
 
 test("同一份清单能投 Chrome 应用商店和 Edge 加载项", () => {

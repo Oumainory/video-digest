@@ -21,7 +21,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "打开 Digest for Bilibili",
+    "default_title": "打开 video-digest",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

@@ -181,3 +181,73 @@ test("播放器没有字幕轨时从当前 watch HTML 恢复响应", async () =>
     1,
   );
 });
+
+test("后台字幕为空时使用当前 YouTube 页面会话重试", async () => {
+  const id = "dQw4w9WgXcQ";
+  const trackUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en`;
+  const location = { href: `https://www.youtube.com/watch?v=${id}` };
+  const response = {
+    videoDetails: { videoId: id, title: "需要页面会话" },
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks: [{ languageCode: "en", baseUrl: trackUrl }],
+      },
+    },
+  };
+  const document = createSharedDocument(() => response);
+  let contentListener;
+  const messages = [];
+  const fetches = [];
+  const pageContext = { console, URL, location, document, CustomEvent };
+  pageContext.window = pageContext;
+  vm.createContext(pageContext);
+  vm.runInContext(PAGE_SOURCE, pageContext);
+
+  const contentContext = {
+    console,
+    URL,
+    location,
+    document,
+    CustomEvent,
+    setTimeout,
+    setInterval() { return 1; },
+    fetch: async (url, options) => {
+      fetches.push({ url, options });
+      return {
+        ok: true,
+        headers: { get: () => "text/xml" },
+        text: async () => '<transcript><text start="1" dur="2">页面字幕</text></transcript>',
+      };
+    },
+    chrome: {
+      runtime: {
+        async sendMessage(message) {
+          messages.push(message);
+          if (messages.length === 1) {
+            return {
+              success: false,
+              error: "EMPTY_TRANSCRIPT",
+              needsPageCaptionFetch: true,
+              pageCaptionTrackUrl: trackUrl,
+            };
+          }
+          return { success: true, transcript: [{ text: "页面字幕" }] };
+        },
+        onMessage: { addListener(listener) { contentListener = listener; } },
+      },
+    },
+  };
+  contentContext.globalThis = contentContext;
+  vm.createContext(contentContext);
+  vm.runInContext(CONTENT_SOURCE, contentContext);
+
+  const result = await new Promise((resolve) => {
+    contentListener({ action: "getYoutubeTranscript" }, {}, resolve);
+  });
+  assert.equal(result.success, true);
+  assert.equal(fetches[0].url, trackUrl, "页面重试应先请求原始 XML 地址");
+  assert.equal(fetches[0].options.credentials, "include");
+  assert.equal(messages[1].pageCaptionFetchAttempted, true);
+  assert.match(messages[1].pageCaptionBody, /页面字幕/);
+  assert.equal(messages[1].pageCaptionContentType, "text/xml");
+});
