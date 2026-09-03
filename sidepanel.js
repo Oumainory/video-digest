@@ -117,7 +117,7 @@ function backgroundErrorResult(error) {
   return {
     error: BACKGROUND_UNAVAILABLE,
     message:
-      "扩展的后台进程没有响应，请求没能发出去。这与 B 站账号、AI 密钥和网络都无关。"
+      "扩展的后台进程没有响应，请求没能发出去。这与网站账号、AI 密钥和网络都无关。"
       + "请打开浏览器的扩展管理页，把本扩展关闭再重新开启，然后点下方重试；"
       + "若仍然无效，卸载后重新安装即可恢复。",
   };

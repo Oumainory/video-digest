@@ -330,7 +330,7 @@ test("后台始终不可达时，不再把它伪装成字幕失败", async () =>
   assert.equal(ctx.el("errorTitle").textContent, "扩展后台未响应");
   assert.match(
     ctx.el("errorText").textContent,
-    /与 B 站账号、AI 密钥和网络都无关/,
+    /与网站账号、AI 密钥和网络都无关/,
     "用户会照着提示去折腾密钥和梯子，必须先把这条路堵死",
   );
   assert.doesNotMatch(
