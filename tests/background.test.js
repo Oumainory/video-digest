@@ -66,6 +66,7 @@ function createBackground({
   let windowRemovedListener;
   const broadcasts = [];
   const panelCalls = [];
+  const youtubeCaptionRequests = [];
   const tabsById = new Map(browserTabs.map((tab) => [tab.id, { ...tab }]));
   const context = {
     console,
@@ -187,7 +188,13 @@ function createBackground({
     BILI_IDB: IDB,
     VIDEO_DIGEST_YOUTUBE: {
       ...YOUTUBE,
-      fetchCaptionTrackContent: async () => structuredClone(youtubeCaptionEntries),
+      fetchCaptionTrackContent: async (url) => {
+        youtubeCaptionRequests.push(String(url));
+        const entries = typeof youtubeCaptionEntries === "function"
+          ? await youtubeCaptionEntries(String(url))
+          : youtubeCaptionEntries;
+        return structuredClone(entries);
+      },
     },
     BILI_COMPANION: COMPANION_PROTOCOL,
     BILI_COMPANION_BRIDGE: COMPANION_BRIDGE,
@@ -212,6 +219,7 @@ function createBackground({
     broadcasts,
     idb,
     panelCalls,
+    youtubeCaptionRequests,
     events: {
       actionClick(tab) { actionClickListener?.(tab); },
       tabActivated(info) { return tabActivatedListener?.(info); },
@@ -354,6 +362,67 @@ test("YouTube 播放器响应缺失时使用当前视频捕获的官方字幕 UR
   assert.equal(result.videoInfo.title, "页面标题");
   assert.equal(result.language, "en");
   assert.equal(result.isAiSubtitle, true);
+});
+
+test("YouTube 同语言静态轨为空时优先使用播放器实际请求的字幕 URL", async () => {
+  const id = "dQw4w9WgXcQ";
+  const staticUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en&source=static`;
+  const capturedUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en&source=player`;
+  const ctx = createBackground({
+    youtubeCaptionEntries: (url) => url === capturedUrl
+      ? [{ text: "播放器会话字幕", start: 1, duration: 1.2 }]
+      : [],
+  });
+  const result = await ctx.send({
+    action: "fetchYoutubeTranscript",
+    videoId: id,
+    sourceUrl: `https://www.youtube.com/watch?v=${id}`,
+    captionTrackUrl: capturedUrl,
+    playerResponse: {
+      videoDetails: { videoId: id, title: "会话字幕测试" },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [{
+            languageCode: "en",
+            name: { simpleText: "English" },
+            baseUrl: staticUrl,
+          }],
+        },
+      },
+    },
+  });
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.transcript[0].text, "播放器会话字幕");
+  assert.deepEqual(ctx.youtubeCaptionRequests, [capturedUrl]);
+});
+
+test("YouTube 播放器会话地址为空时回退同语言静态轨", async () => {
+  const id = "dQw4w9WgXcQ";
+  const staticUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en&source=static`;
+  const capturedUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en&source=player`;
+  const ctx = createBackground({
+    youtubeCaptionEntries: (url) => url === staticUrl
+      ? [{ text: "静态轨回退字幕", start: 2, duration: 1 }]
+      : [],
+  });
+  const result = await ctx.send({
+    action: "fetchYoutubeTranscript",
+    videoId: id,
+    captionTrackUrl: capturedUrl,
+    playerResponse: {
+      videoDetails: { videoId: id },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [{ languageCode: "en", baseUrl: staticUrl }],
+        },
+      },
+    },
+  });
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.transcript[0].text, "静态轨回退字幕");
+  assert.deepEqual(ctx.youtubeCaptionRequests, [capturedUrl, staticUrl]);
 });
 
 test("YouTube 后台空响应经页面原文重试后成功解析", async () => {

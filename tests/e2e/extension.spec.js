@@ -198,12 +198,16 @@ test("YouTube 人工/自动字幕、多语言、无字幕、空字幕和 SPA 切
   const fixture = await launchExtension();
   try {
     let activeResponse = playerResponse();
+    activeResponse.captions.playerCaptionsTracklistRenderer.captionTracks[0].baseUrl += "&source=static";
     let activeCaption = captionJson();
     let activeContentType = "application/json";
-    await fixture.context.route("https://www.youtube.com/api/timedtext**", (route) => route.fulfill({
-      contentType: activeContentType,
-      body: activeCaption,
-    }));
+    await fixture.context.route("https://www.youtube.com/api/timedtext**", (route) => {
+      const source = new URL(route.request().url()).searchParams.get("source");
+      return route.fulfill({
+        contentType: activeContentType,
+        body: source === "static" ? "" : activeCaption,
+      });
+    });
     await fixture.context.route("https://www.youtube.com/watch**", (route) => route.fulfill({
       contentType: "text/html",
       body: youtubeHtml(activeResponse),
@@ -212,6 +216,15 @@ test("YouTube 人工/自动字幕、多语言、无字幕、空字幕和 SPA 切
     const page = await fixture.context.newPage();
     await page.goto(`https://www.youtube.com/watch?v=${YOUTUBE_ID}`);
     await expect(page.locator("#video-digest-youtube-button")).toBeVisible();
+    await page.evaluate((id) => new Promise((resolve) => {
+      const request = new XMLHttpRequest();
+      request.open(
+        "GET",
+        `https://www.youtube.com/api/timedtext?v=${id}&lang=en&source=player&fmt=json3`,
+      );
+      request.addEventListener("loadend", resolve, { once: true });
+      request.send();
+    }), YOUTUBE_ID);
     const firstTab = await tabFor(fixture.worker, YOUTUBE_ID);
     const result = await fixture.worker.evaluate((tabId) => chrome.tabs.sendMessage(tabId, {
       action: "getYoutubeTranscript",
@@ -220,6 +233,7 @@ test("YouTube 人工/自动字幕、多语言、无字幕、空字幕和 SPA 切
     }), firstTab.id);
     expect(result.success).toBe(true);
     expect(result.transcript.map((item) => item.text || item.content).join(" ")).toContain("mocked YouTube");
+    expect(result.language).toBe("en");
     expect(result.isAiSubtitle).toBe(false);
 
     const autoId = "a1b2c3d4e5F";

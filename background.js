@@ -658,32 +658,61 @@ async function handleYoutubeTranscript(message = {}) {
   const preference = Array.isArray(message.languagePreference) && message.languagePreference.length
     ? message.languagePreference
     : settings.subtitleLangPreference;
-  const track = VIDEO_DIGEST_YOUTUBE.pickCaptionTrack(tracks, preference);
+  const preferredTrack = VIDEO_DIGEST_YOUTUBE.pickCaptionTrack(tracks, preference);
+  // playerResponse 里的 baseUrl 可能缺少当前播放会话动态附加的参数，表现为
+  // HTTP 200 但正文为空。页面播放器实际请求过的 timedtext URL 已经过同视频
+  // 校验；它与首选轨语言一致时应优先使用，静态轨道只负责语言选择和兜底。
+  const primaryTrack = capturedTrack?.lang === preferredTrack?.lang
+    ? capturedTrack
+    : preferredTrack;
+  const trackCandidates = [primaryTrack];
+  if (preferredTrack?.url !== primaryTrack?.url) trackCandidates.push(preferredTrack);
+  let track = primaryTrack;
   try {
     const pageTrack = VIDEO_DIGEST_YOUTUBE.captionTrackFromUrl(
       message.pageCaptionTrackUrl,
       youtubeId,
     );
-    const pageTrackMatches = Boolean(
-      pageTrack
-      && pageTrack.lang === track.lang
-      && pageTrack.url === track.url,
+    const pageCandidate = pageTrack && trackCandidates.find(
+      (candidate) => pageTrack.lang === candidate.lang && pageTrack.url === candidate.url,
     );
-    const entries = pageTrackMatches && typeof message.pageCaptionBody === "string"
-      ? VIDEO_DIGEST_YOUTUBE.parseCaptionTrackContent(
+    let entries = [];
+    let receivedResponse = false;
+    let fetchError = null;
+    if (pageCandidate && typeof message.pageCaptionBody === "string") {
+      track = pageCandidate;
+      receivedResponse = true;
+      entries = VIDEO_DIGEST_YOUTUBE.parseCaptionTrackContent(
         message.pageCaptionBody,
         message.pageCaptionContentType,
-      )
-      : await VIDEO_DIGEST_YOUTUBE.fetchCaptionTrackContent(track.url);
+      );
+    }
+    for (const candidate of trackCandidates) {
+      if (entries.length || candidate.url === pageCandidate?.url) continue;
+      try {
+        const downloaded = await VIDEO_DIGEST_YOUTUBE.fetchCaptionTrackContent(candidate.url);
+        receivedResponse = true;
+        if (downloaded.length) {
+          entries = downloaded;
+          track = candidate;
+        }
+      } catch (error) {
+        fetchError ||= error;
+      }
+    }
     if (!entries.length) {
       return {
         success: false,
-        error: "EMPTY_TRANSCRIPT",
-        message: "YouTube 字幕文件是空的。",
+        error: receivedResponse
+          ? "EMPTY_TRANSCRIPT"
+          : (fetchError?.code || "TRANSCRIPT_FETCH_FAILED"),
+        message: receivedResponse
+          ? "YouTube 字幕文件是空的。"
+          : (fetchError?.message || "YouTube 字幕获取失败。"),
         // 后台请求可能拿不到用户所在地区/登录态下的字幕。只把已经校验并
-        // 选中的 YouTube URL 交回当前页面重试一次。
+        // 捕获到的播放器会话 URL 交回当前页面重试一次。
         needsPageCaptionFetch: !message.pageCaptionFetchAttempted,
-        pageCaptionTrackUrl: track.url,
+        pageCaptionTrackUrl: primaryTrack.url,
       };
     }
     const videoInfo = VIDEO_DIGEST_YOUTUBE.normalizeVideoInfo(
@@ -712,7 +741,7 @@ async function handleYoutubeTranscript(message = {}) {
       error: error.code || "TRANSCRIPT_FETCH_FAILED",
       message: error.message || "YouTube 字幕获取失败。",
       needsPageCaptionFetch: !message.pageCaptionFetchAttempted,
-      pageCaptionTrackUrl: track.url,
+      pageCaptionTrackUrl: primaryTrack.url,
     };
   }
 }
