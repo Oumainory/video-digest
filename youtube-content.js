@@ -8,6 +8,7 @@
   const PLAYER_RESPONSE_EVENT = "video-digest:player-response";
   let bridgedPlayerResponse = null;
   const capturedCaptionUrls = new Map();
+  const capturedCaptionBodies = new Map();
   const PLAYER_BUTTON_SELECTORS = [
     ".ytp-right-controls",
     "ytd-watch-metadata #actions-inner",
@@ -78,6 +79,21 @@
           if (value && !urls.includes(String(value))) urls.push(String(value));
         }
         capturedCaptionUrls.set(payload.videoId, urls);
+      }
+      if (payload.videoId === videoId() && Array.isArray(payload.captionBodies)) {
+        const bodies = capturedCaptionBodies.get(payload.videoId) || [];
+        for (const item of payload.captionBodies) {
+          if (!item?.url || !item?.body) continue;
+          const existing = bodies.findIndex((value) => value.url === String(item.url));
+          if (existing >= 0) bodies.splice(existing, 1);
+          bodies.push({
+            url: String(item.url),
+            body: String(item.body),
+            contentType: String(item.contentType || ""),
+          });
+        }
+        while (bodies.length > 4) bodies.shift();
+        capturedCaptionBodies.set(payload.videoId, bodies);
       }
       if (payload.videoId === videoId() && payload.captionTrackUrl) {
         const urls = capturedCaptionUrls.get(payload.videoId) || [];
@@ -223,6 +239,7 @@
       sourceUrl: location.href,
       playerResponse: responseData,
       captionTrackUrls: capturedCaptionUrls.get(id) || [],
+      captionBodies: capturedCaptionBodies.get(id) || [],
       captionTrackUrl: (() => {
         const urls = capturedCaptionUrls.get(id) || [];
         return urls.length ? urls[urls.length - 1] : "";

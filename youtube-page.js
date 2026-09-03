@@ -11,6 +11,8 @@
   const REQUEST_EVENT = "video-digest:request-player-response";
   const RESPONSE_EVENT = "video-digest:player-response";
   const capturedCaptionUrls = new Map();
+  const capturedCaptionBodies = new Map();
+  const MAX_CAPTURED_BODY_CHARS = 2_000_000;
 
   function currentVideoId() {
     try {
@@ -57,6 +59,41 @@
     }
   }
 
+  function captionRequestUrl(value) {
+    try {
+      const url = new URL(String(value || ""), location.href);
+      const hostname = url.hostname.toLowerCase();
+      const videoId = url.searchParams.get("v") || "";
+      if (
+        url.protocol !== "https:"
+        || !(hostname === "youtube.com" || hostname.endsWith(".youtube.com"))
+        || url.pathname !== "/api/timedtext"
+        || !/^[A-Za-z0-9_-]{11}$/.test(videoId)
+      ) return null;
+      return { url, videoId };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function rememberCaptionBody(requestUrl, body, contentType = "") {
+    const parsedRequest = captionRequestUrl(requestUrl);
+    const text = String(body || "");
+    if (!parsedRequest || !text.trim() || text.length > MAX_CAPTURED_BODY_CHARS) return;
+    const value = {
+      url: parsedRequest.url.toString(),
+      body: text,
+      contentType: String(contentType || ""),
+    };
+    const bodies = capturedCaptionBodies.get(parsedRequest.videoId) || [];
+    const existing = bodies.findIndex((item) => item.url === value.url);
+    if (existing >= 0) bodies.splice(existing, 1);
+    bodies.push(value);
+    while (bodies.length > 4) bodies.shift();
+    capturedCaptionBodies.set(parsedRequest.videoId, bodies);
+    rememberCaptionUrl(value.url);
+  }
+
   // 借鉴成熟视频摘要扩展的做法：在页面脚本发起请求前观察官方字幕 URL，
   // 用于识别播放器当前实际请求的字幕轨，避免静态 player response 与活动轨不一致。
   function observeCaptionRequests() {
@@ -64,6 +101,7 @@
     const originalOpen = XMLHttpRequest.prototype.open;
     if (typeof originalOpen !== "function" || originalOpen.__videoDigestObserved) return;
     function open(...args) {
+      this.__videoDigestCaptionUrl = args[1];
       rememberCaptionUrl(args[1]);
       return originalOpen.apply(this, args);
     }
@@ -77,6 +115,35 @@
     } catch (error) {
       // 极少数页面会锁定原型；放弃观察即可，播放器响应路径仍然可用。
     }
+
+    const originalSend = XMLHttpRequest.prototype.send;
+    if (typeof originalSend !== "function" || originalSend.__videoDigestObserved) return;
+    function send(...args) {
+      const capture = () => {
+        const requestUrl = this.__videoDigestCaptionUrl || this.responseURL;
+        if (this.status >= 200 && this.status < 300) {
+          let body = "";
+          try { body = this.responseType && this.responseType !== "text" ? "" : this.responseText; } catch (error) {}
+          let contentType = "";
+          try { contentType = this.getResponseHeader?.("content-type") || ""; } catch (error) {}
+          rememberCaptionBody(requestUrl, body, contentType);
+        }
+      };
+      try {
+        this.addEventListener?.("load", capture, { once: true });
+      } catch (error) {}
+      return originalSend.apply(this, args);
+    }
+    try {
+      Object.defineProperty(send, "__videoDigestObserved", { value: true });
+      Object.defineProperty(XMLHttpRequest.prototype, "send", {
+        configurable: true,
+        writable: true,
+        value: send,
+      });
+    } catch (error) {
+      // 只要 URL 观察成功，静态字幕轨和页面重试仍可用。
+    }
   }
 
   function observeFetchRequests() {
@@ -84,8 +151,23 @@
     if (typeof originalFetch !== "function" || originalFetch.__videoDigestObserved) return;
     const observedFetch = function (...args) {
       const input = args[0];
-      rememberCaptionUrl(typeof input === "string" ? input : input?.url);
-      return originalFetch.apply(this, args);
+      const requestUrl = typeof input === "string" ? input : input?.url;
+      rememberCaptionUrl(requestUrl);
+      const pending = originalFetch.apply(this, args);
+      return Promise.resolve(pending).then((response) => {
+        if (response?.ok && typeof response.clone === "function") {
+          try {
+            void response.clone().text().then((body) => {
+              rememberCaptionBody(
+                requestUrl,
+                body,
+                response.headers?.get?.("content-type") || "",
+              );
+            }).catch(() => {});
+          } catch (error) {}
+        }
+        return response;
+      });
     };
     try {
       Object.defineProperty(observedFetch, "__videoDigestObserved", { value: true });
@@ -125,6 +207,7 @@
         videoId,
         playerResponse,
         captionTrackUrls: capturedCaptionUrls.get(videoId) || [],
+        captionBodies: capturedCaptionBodies.get(videoId) || [],
         captionTrackUrl: (() => {
           const urls = capturedCaptionUrls.get(videoId) || [];
           return urls.length ? urls[urls.length - 1] : "";

@@ -679,6 +679,8 @@ async function handleYoutubeTranscript(message = {}) {
   const primaryTrack = activePreferred || capturedTrack || preferredTrack;
   const trackCandidates = [primaryTrack];
   if (preferredTrack?.url !== primaryTrack?.url) trackCandidates.push(preferredTrack);
+  const capturedBodies = Array.isArray(message.captionBodies) ? message.captionBodies : [];
+  const primaryBody = capturedBodies.find((item) => item?.url === primaryTrack?.url);
   let track = primaryTrack;
   try {
     const pageTrack = VIDEO_DIGEST_YOUTUBE.captionTrackFromUrl(
@@ -691,7 +693,15 @@ async function handleYoutubeTranscript(message = {}) {
     let entries = [];
     let receivedResponse = false;
     let fetchError = null;
-    if (pageCandidate && typeof message.pageCaptionBody === "string") {
+    if (primaryBody?.body) {
+      track = primaryTrack;
+      receivedResponse = true;
+      entries = VIDEO_DIGEST_YOUTUBE.parseCaptionTrackContent(
+        primaryBody.body,
+        primaryBody.contentType,
+      );
+    }
+    if (!entries.length && pageCandidate && typeof message.pageCaptionBody === "string") {
       track = pageCandidate;
       receivedResponse = true;
       entries = VIDEO_DIGEST_YOUTUBE.parseCaptionTrackContent(

@@ -61,7 +61,11 @@ test("YouTube 页面桥接在单页切换后返回当前视频的播放器响应
     document,
     CustomEvent,
     XMLHttpRequest: FakeXMLHttpRequest,
-    fetch: async () => ({ ok: true }),
+    fetch: async () => ({
+      ok: true,
+      headers: { get: () => "application/json" },
+      clone: () => ({ text: async () => JSON.stringify({ events: [{ tStartMs: 0, segs: [{ utf8: "播放器字幕" }] }] }) }),
+    }),
   };
   pageContext.window = pageContext;
   vm.createContext(pageContext);
@@ -101,6 +105,7 @@ test("YouTube 页面桥接在单页切换后返回当前视频的播放器响应
   await pageContext.fetch(
     "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&tlang=zh-Hans",
   );
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
   const requestTranscript = (forceRefresh = false) => new Promise((resolve) => {
     contentListener(
@@ -114,6 +119,8 @@ test("YouTube 页面桥接在单页切换后返回当前视频的播放器响应
   assert.equal(sent[0].playerResponse.videoDetails.videoId, "dQw4w9WgXcQ");
   assert.equal(sent[0].captionTrackUrls.length, 2);
   assert.match(sent[0].captionTrackUrls[1], /tlang=zh-Hans/);
+  assert.equal(sent[0].captionBodies.length, 1);
+  assert.match(sent[0].captionBodies[0].body, /播放器字幕/);
   assert.match(sent[0].captionTrackUrl, /v=dQw4w9WgXcQ/);
   assert.equal(sent[0].pageInfo.title, "测试视频");
 
