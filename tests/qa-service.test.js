@@ -73,6 +73,43 @@ test("剥掉模型包在回答外面的成对引号", async () => {
   assert.ok(captured);
 });
 
+test("明确来自视频简介的公司信息可以回答，不被字幕引用兜底覆盖", async () => {
+  const service = QA_SERVICE.createQaService({
+    cache: { load: async () => null },
+    dataReady: async () => {},
+    ensureTranscript: async () => ({
+      success: true,
+      transcript: TRANSCRIPT_FIXTURE,
+      segments: SEGMENTS_FIXTURE,
+      videoInfo: {
+        title: "Nodus Fall - World Premiere Reveal Trailer",
+        owner: "IGN",
+        description: "Nodus Fall is a brand new game from Hoyoverse.",
+      },
+    }),
+    learningRepository: () => LEARNING_STORE.createLearningRepository({
+      driver: IDB.createObjectStoreDriver({ storeName: "learning", indexedDB: createMemoryIndexedDb() }),
+    }),
+    getSettings: async () => ({}),
+    repository: () => QA_SERVICE.createQaRepository({
+      driver: IDB.createObjectStoreDriver({ storeName: "qa", indexedDB: createMemoryIndexedDb() }),
+    }),
+    loadPromptSection: async () => "p",
+    requestAiCompletion: async () => ({
+      text: JSON.stringify({ answer: "这是 Hoyoverse 的游戏。", evidence: "metadata" }),
+    }),
+    aiErrorResponse: (error) => ({ success: false, error: error.message }),
+  });
+
+  const result = await service.askQuestion({
+    bvid: "BV1xx411c7mD",
+    question: "这是哪个公司的？",
+  });
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.entry.answer, "这是 Hoyoverse 的游戏。");
+  assert.deepEqual(result.entry.citations, []);
+});
+
 test("定位字幕模式只返回命中片段，不调用大模型", async () => {
   let requested = false;
   const idb = createMemoryIndexedDb();
