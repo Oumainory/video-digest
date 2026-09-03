@@ -630,11 +630,18 @@ async function handleYoutubeTranscript(message = {}) {
     if (cached?.transcript?.length) return { ...cached, success: true, fromCache: true };
   }
 
-  const capturedTrack = VIDEO_DIGEST_YOUTUBE.captionTrackFromUrl(
+  const capturedUrls = [
+    ...(Array.isArray(message.captionTrackUrls) ? message.captionTrackUrls : []),
     message.captionTrackUrl,
-    youtubeId,
-  );
-  if ((!message.playerResponse || typeof message.playerResponse !== "object") && !capturedTrack) {
+  ].filter(Boolean);
+  const capturedTracks = capturedUrls
+    .map((url) => VIDEO_DIGEST_YOUTUBE.captionTrackFromUrl(url, youtubeId))
+    .filter(Boolean)
+    .filter((track, index, list) => list.findIndex((item) => item.url === track.url) === index);
+  const capturedTrack = capturedTracks.length
+    ? capturedTracks[capturedTracks.length - 1]
+    : null;
+  if ((!message.playerResponse || typeof message.playerResponse !== "object") && !capturedTracks.length) {
     return {
       success: false,
       error: "YOUTUBE_PLAYER_DATA_UNAVAILABLE",
@@ -646,7 +653,7 @@ async function handleYoutubeTranscript(message = {}) {
     message.playerResponse,
     youtubeId,
   );
-  if (!tracks.length && capturedTrack) tracks.push(capturedTrack);
+  if (!tracks.length && capturedTracks.length) tracks.push(...capturedTracks);
   if (!tracks.length) {
     return {
       success: false,
@@ -661,10 +668,15 @@ async function handleYoutubeTranscript(message = {}) {
   const preferredTrack = VIDEO_DIGEST_YOUTUBE.pickCaptionTrack(tracks, preference);
   // playerResponse 里的 baseUrl 可能缺少当前播放会话动态附加的参数，表现为
   // HTTP 200 但正文为空。页面播放器实际请求过的 timedtext URL 已经过同视频
-  // 校验；它与首选轨语言一致时应优先使用，静态轨道只负责语言选择和兜底。
-  const primaryTrack = capturedTrack?.lang === preferredTrack?.lang
-    ? capturedTrack
-    : preferredTrack;
+  // 校验；与首选语言匹配时优先使用活动轨，静态轨道只负责语言选择和兜底。
+  const preferredLanguage = preferredTrack?.effectiveLang || preferredTrack?.lang;
+  const activePreferred = [...capturedTracks].reverse().find((track) => {
+    const language = track.effectiveLang || track.lang;
+    return language === preferredLanguage
+      || language.startsWith(`${preferredLanguage}-`)
+      || preferredLanguage?.startsWith(`${language}-`);
+  });
+  const primaryTrack = activePreferred || capturedTrack || preferredTrack;
   const trackCandidates = [primaryTrack];
   if (preferredTrack?.url !== primaryTrack?.url) trackCandidates.push(preferredTrack);
   let track = primaryTrack;

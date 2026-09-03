@@ -48,7 +48,14 @@ test("捕获到的 timedtext 地址必须属于当前 YouTube 视频", () => {
     "dQw4w9WgXcQ",
   );
   assert.equal(track.lang, "en");
+  assert.equal(track.effectiveLang, "en");
   assert.equal(track.isAi, true);
+  const translated = YOUTUBE.captionTrackFromUrl(
+    "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&tlang=zh-Hans",
+    "dQw4w9WgXcQ",
+  );
+  assert.equal(translated.lang, "en");
+  assert.equal(translated.effectiveLang, "zh-Hans");
   assert.equal(
     YOUTUBE.captionTrackFromUrl(
       "https://www.youtube.com/api/timedtext?v=9bZkp7q19f0&lang=en",
@@ -63,6 +70,14 @@ test("捕获到的 timedtext 地址必须属于当前 YouTube 视频", () => {
     ),
     null,
   );
+});
+
+test("翻译字幕轨按目标语言优先于原始语言", () => {
+  const tracks = [
+    { lang: "en", effectiveLang: "en", url: "en", isAi: false },
+    { lang: "en", effectiveLang: "zh-Hans", url: "translated", isAi: false },
+  ];
+  assert.equal(YOUTUBE.pickCaptionTrack(tracks, ["zh-Hans"]).url, "translated");
 });
 
 test("播放器详情缺失时使用页面元信息补齐视频资料", () => {

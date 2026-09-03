@@ -43,7 +43,11 @@
       const videoId = currentVideoId();
       const requestVideoId = url.searchParams.get("v");
       if (!videoId || requestVideoId !== videoId) return;
-      capturedCaptionUrls.set(videoId, url.toString());
+      const urls = capturedCaptionUrls.get(videoId) || [];
+      const capturedUrl = url.toString();
+      if (!urls.includes(capturedUrl)) urls.push(capturedUrl);
+      while (urls.length > 16) urls.shift();
+      capturedCaptionUrls.set(videoId, urls);
       // YouTube 是单页应用，限制表的大小，避免长时间浏览后无限增长。
       while (capturedCaptionUrls.size > 8) {
         capturedCaptionUrls.delete(capturedCaptionUrls.keys().next().value);
@@ -53,8 +57,8 @@
     }
   }
 
-  // 借鉴成熟视频摘要扩展的做法：在页面脚本发起请求前观察官方字幕 URL。
-  // 这不是主要数据源，只在播放器响应没有暴露字幕轨时作为同视频兜底。
+  // 借鉴成熟视频摘要扩展的做法：在页面脚本发起请求前观察官方字幕 URL，
+  // 用于识别播放器当前实际请求的字幕轨，避免静态 player response 与活动轨不一致。
   function observeCaptionRequests() {
     if (typeof XMLHttpRequest === "undefined") return;
     const originalOpen = XMLHttpRequest.prototype.open;
@@ -72,6 +76,22 @@
       });
     } catch (error) {
       // 极少数页面会锁定原型；放弃观察即可，播放器响应路径仍然可用。
+    }
+  }
+
+  function observeFetchRequests() {
+    const originalFetch = globalThis.fetch;
+    if (typeof originalFetch !== "function" || originalFetch.__videoDigestObserved) return;
+    const observedFetch = function (...args) {
+      const input = args[0];
+      rememberCaptionUrl(typeof input === "string" ? input : input?.url);
+      return originalFetch.apply(this, args);
+    };
+    try {
+      Object.defineProperty(observedFetch, "__videoDigestObserved", { value: true });
+      globalThis.fetch = observedFetch;
+    } catch (error) {
+      // 页面环境禁止替换 fetch 时，XHR 和播放器响应路径仍可用。
     }
   }
 
@@ -104,10 +124,15 @@
         requestId,
         videoId,
         playerResponse,
-        captionTrackUrl: capturedCaptionUrls.get(videoId) || "",
+        captionTrackUrls: capturedCaptionUrls.get(videoId) || [],
+        captionTrackUrl: (() => {
+          const urls = capturedCaptionUrls.get(videoId) || [];
+          return urls.length ? urls[urls.length - 1] : "";
+        })(),
       }),
     }));
   });
 
   observeCaptionRequests();
+  observeFetchRequests();
 })();

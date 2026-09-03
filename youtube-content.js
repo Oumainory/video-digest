@@ -72,8 +72,18 @@
       if (payload.videoId === videoId() && matchesCurrentVideo(payload.playerResponse)) {
         bridgedPlayerResponse = payload.playerResponse;
       }
+      if (payload.videoId === videoId() && Array.isArray(payload.captionTrackUrls)) {
+        const urls = capturedCaptionUrls.get(payload.videoId) || [];
+        for (const value of payload.captionTrackUrls) {
+          if (value && !urls.includes(String(value))) urls.push(String(value));
+        }
+        capturedCaptionUrls.set(payload.videoId, urls);
+      }
       if (payload.videoId === videoId() && payload.captionTrackUrl) {
-        capturedCaptionUrls.set(payload.videoId, String(payload.captionTrackUrl));
+        const urls = capturedCaptionUrls.get(payload.videoId) || [];
+        const value = String(payload.captionTrackUrl);
+        if (!urls.includes(value)) urls.push(value);
+        capturedCaptionUrls.set(payload.videoId, urls);
       }
     } catch (error) {
       // 页面导航过程中拿到半截数据时等下一次请求即可。
@@ -212,7 +222,11 @@
       videoId: id,
       sourceUrl: location.href,
       playerResponse: responseData,
-      captionTrackUrl: capturedCaptionUrls.get(id) || "",
+      captionTrackUrls: capturedCaptionUrls.get(id) || [],
+      captionTrackUrl: (() => {
+        const urls = capturedCaptionUrls.get(id) || [];
+        return urls.length ? urls[urls.length - 1] : "";
+      })(),
       pageInfo: readVideoInfo(),
       languagePreference,
       forceRefresh,
