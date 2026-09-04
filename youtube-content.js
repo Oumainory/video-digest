@@ -9,6 +9,8 @@
   const PAGE_CAPTION_REQUEST_EVENT = "video-digest:request-page-caption";
   const PAGE_CAPTION_RESPONSE_EVENT = "video-digest:page-caption";
   let bridgedPlayerResponse = null;
+  let activeCaptionTrack = null;
+  let activeCaptionTrackUrl = "";
   const capturedCaptionUrls = new Map();
   const capturedCaptionBodies = new Map();
   const pendingPageCaptionRequests = new Map();
@@ -75,6 +77,12 @@
       const payload = JSON.parse(String(event.detail || ""));
       if (payload.videoId === videoId() && matchesCurrentVideo(payload.playerResponse)) {
         bridgedPlayerResponse = payload.playerResponse;
+      }
+      if (payload.videoId === videoId()) {
+        activeCaptionTrack = payload.activeCaptionTrack && typeof payload.activeCaptionTrack === "object"
+          ? payload.activeCaptionTrack
+          : null;
+        activeCaptionTrackUrl = String(payload.activeCaptionTrackUrl || "");
       }
       if (payload.videoId === videoId() && Array.isArray(payload.captionTrackUrls)) {
         const urls = capturedCaptionUrls.get(payload.videoId) || [];
@@ -264,11 +272,21 @@
       const fetched = await fetchWatchPlayerResponse(id);
       if (fetched) responseData = fetched;
     }
+    // 运行时播放器已经为字幕轨补齐了会话参数时，先在页面世界读取一次完整
+    // 正文。直接用播放器所在会话请求，避免扩展上下文拿到 200 但空正文，或
+    // 只拿到当前播放位置附近的字幕窗口。
+    const pageCaption = activeCaptionTrackUrl
+      ? await requestCaptionFromPage(activeCaptionTrackUrl, id)
+      : null;
     const request = {
       action: "fetchYoutubeTranscript",
       videoId: id,
       sourceUrl: location.href,
       playerResponse: responseData,
+      activeCaptionTrack,
+      pageCaptionTrackUrl: activeCaptionTrackUrl,
+      pageCaptionBody: pageCaption?.body || "",
+      pageCaptionContentType: pageCaption?.contentType || "",
       captionTrackUrls: capturedCaptionUrls.get(id) || [],
       captionBodies: capturedCaptionBodies.get(id) || [],
       captionTrackUrl: (() => {

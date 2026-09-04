@@ -520,6 +520,74 @@ test("YouTube 当前页面有播放器数据时不先返回旧字幕缓存", asy
   assert.equal(result.transcript[0].text, "当前播放器字幕");
 });
 
+test("YouTube 按播放器当前选中的字幕轨取同语言字幕", async () => {
+  const id = "dQw4w9WgXcQ";
+  const aiUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=zh-Hans&kind=asr`;
+  const manualUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=zh-Hans`;
+  const ctx = createBackground({
+    youtubeCaptionEntries: (url) => url === aiUrl
+      ? [{ text: "播放器选中的自动字幕", start: 1, duration: 1 }]
+      : [{ text: "另一条人工字幕", start: 6, duration: 1 }],
+  });
+
+  const result = await ctx.send({
+    action: "fetchYoutubeTranscript",
+    videoId: id,
+    sourceUrl: `https://www.youtube.com/watch?v=${id}`,
+    activeCaptionTrack: { languageCode: "zh-Hans", kind: "asr" },
+    captionTrackUrls: [manualUrl, aiUrl],
+    playerResponse: {
+      videoDetails: { videoId: id, title: "字幕轨测试" },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [
+            { languageCode: "zh-Hans", baseUrl: manualUrl },
+            { languageCode: "zh-Hans", kind: "asr", baseUrl: aiUrl },
+          ],
+        },
+      },
+    },
+  });
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.transcript[0].text, "播放器选中的自动字幕");
+});
+
+test("YouTube 同一字幕轨的多次会话响应合并成完整字幕", async () => {
+  const id = "dQw4w9WgXcQ";
+  const firstUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=zh-Hans&caps=asr&start=0`;
+  const secondUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=zh-Hans&caps=asr&start=6`;
+  const toJson = (entries) => JSON.stringify({
+    events: entries.map((entry) => ({
+      tStartMs: entry.start * 1000,
+      dDurationMs: entry.duration * 1000,
+      segs: [{ utf8: entry.text }],
+    })),
+  });
+  const ctx = createBackground();
+  const result = await ctx.send({
+    action: "fetchYoutubeTranscript",
+    videoId: id,
+    sourceUrl: `https://www.youtube.com/watch?v=${id}`,
+    captionTrackUrls: [firstUrl, secondUrl],
+    captionBodies: [
+      { url: firstUrl, contentType: "application/json", body: toJson([{ text: "开头字幕", start: 1, duration: 1 }]) },
+      { url: secondUrl, contentType: "application/json", body: toJson([{ text: "后续字幕", start: 6, duration: 1 }]) },
+    ],
+    playerResponse: {
+      videoDetails: { videoId: id, title: "分段字幕测试" },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [{ languageCode: "zh-Hans", kind: "asr", baseUrl: firstUrl }],
+        },
+      },
+    },
+  });
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.transcript.map((entry) => entry.text).join("|"), "开头字幕|后续字幕");
+});
+
 test("后台把桌面操作映射到 Native Messaging，并转发任务事件", async () => {
   let onMessage;
   const posted = [];

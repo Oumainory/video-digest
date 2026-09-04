@@ -674,7 +674,51 @@ async function handleYoutubeTranscript(message = {}) {
   const preference = Array.isArray(message.languagePreference) && message.languagePreference.length
     ? message.languagePreference
     : settings.subtitleLangPreference;
-  const preferredTrack = VIDEO_DIGEST_YOUTUBE.pickCaptionTrack(tracks, preference);
+  const activeCaptionTrack = message.activeCaptionTrack && typeof message.activeCaptionTrack === "object"
+    ? message.activeCaptionTrack
+    : null;
+  const activeTrack = activeCaptionTrack && [...tracks].sort((left, right) => {
+    const score = (track) => {
+      const activeVssId = String(activeCaptionTrack.vssId || "");
+      const activeLanguage = String(
+        activeCaptionTrack.tlang || activeCaptionTrack.languageCode || "",
+      );
+      const trackLanguage = String(track.effectiveLang || track.lang || "");
+      const sameVssId = activeVssId && activeVssId === String(track.id || "");
+      const sameLanguage = activeLanguage && (
+        activeLanguage === trackLanguage
+        || activeLanguage.startsWith(`${trackLanguage}-`)
+        || trackLanguage.startsWith(`${activeLanguage}-`)
+      );
+      const activeKind = String(activeCaptionTrack.kind || "");
+      const sameKind = !activeKind || (activeKind === "asr") === Boolean(track.isAi);
+      if (!sameKind || (!sameVssId && !sameLanguage)) return 99;
+      if (sameVssId) return 0;
+      return sameLanguage ? 1 : 99;
+    };
+    return score(left) - score(right);
+  }).find((track) => {
+    const activeVssId = String(activeCaptionTrack.vssId || "");
+    const activeLanguage = String(
+      activeCaptionTrack.tlang || activeCaptionTrack.languageCode || "",
+    );
+    const trackLanguage = String(track.effectiveLang || track.lang || "");
+    const sameLanguage = activeLanguage && (
+      activeLanguage === trackLanguage
+      || activeLanguage.startsWith(`${trackLanguage}-`)
+      || trackLanguage.startsWith(`${activeLanguage}-`)
+    );
+    const sameVssId = activeVssId && (
+      activeVssId === String(track.id || "")
+      || activeVssId === String(track.lang || "")
+    );
+    const activeKind = String(activeCaptionTrack.kind || "");
+    const sameKind = !activeKind || (activeKind === "asr") === Boolean(track.isAi);
+    return sameKind && (sameVssId || sameLanguage);
+  });
+  // 播放器实际选中的字幕轨优先于默认语言偏好；这样同为 zh-Hans 时不会误取
+  // 另一条人工/自动/翻译轨，导致播放器和扩展的开头内容不一致。
+  const preferredTrack = activeTrack || VIDEO_DIGEST_YOUTUBE.pickCaptionTrack(tracks, preference);
   // playerResponse 里的 baseUrl 可能缺少当前播放会话动态附加的参数，表现为
   // HTTP 200 但正文为空。页面播放器实际请求过的 timedtext URL 已经过同视频
   // 校验；与首选语言匹配时优先使用活动轨，静态轨道只负责语言选择和兜底。
@@ -697,17 +741,26 @@ async function handleYoutubeTranscript(message = {}) {
       || rightLanguage.startsWith(`${leftLanguage}-`)
     );
   };
-  const capturedBodyForTrack = (candidate) => {
-    if (!candidate) return null;
-    return [...capturedBodies].reverse().find((item) => {
+  const capturedBodiesForTrack = (candidate) => {
+    if (!candidate) return [];
+    return capturedBodies.filter((item) => {
       if (!item?.body) return false;
       if (item.url === candidate.url) return true;
       const capturedTrack = VIDEO_DIGEST_YOUTUBE.captionTrackFromUrl(item.url, youtubeId);
-      return sameCaptionLanguage(capturedTrack, candidate);
-    }) || null;
+      return sameCaptionLanguage(capturedTrack, candidate)
+        && Boolean(capturedTrack?.isAi) === Boolean(candidate.isAi);
+    });
   };
-  const primaryBody = capturedBodyForTrack(primaryTrack)
-    || (preferredTrack?.url !== primaryTrack?.url ? capturedBodyForTrack(preferredTrack) : null);
+  const capturedEntriesForTrack = (candidate) => {
+    const entries = new Map();
+    for (const item of capturedBodiesForTrack(candidate)) {
+      for (const entry of VIDEO_DIGEST_YOUTUBE.parseCaptionTrackContent(item.body, item.contentType)) {
+        const key = `${entry.start}|${entry.text}`;
+        entries.set(key, entry);
+      }
+    }
+    return [...entries.values()].sort((left, right) => left.start - right.start);
+  };
   let track = primaryTrack;
   try {
     const pageTrack = VIDEO_DIGEST_YOUTUBE.captionTrackFromUrl(
@@ -717,16 +770,25 @@ async function handleYoutubeTranscript(message = {}) {
     const pageCandidate = pageTrack && trackCandidates.find(
       (candidate) => pageTrack.lang === candidate.lang && pageTrack.url === candidate.url,
     );
+    const pageBody = pageCandidate && typeof message.pageCaptionBody === "string"
+      ? message.pageCaptionBody
+      : "";
+    const primaryCapturedEntries = capturedEntriesForTrack(primaryTrack);
     let entries = [];
     let receivedResponse = false;
     let fetchError = null;
-    if (primaryBody?.body) {
-      track = primaryTrack;
+    if (pageBody) {
+      track = pageCandidate;
       receivedResponse = true;
       entries = VIDEO_DIGEST_YOUTUBE.parseCaptionTrackContent(
-        primaryBody.body,
-        primaryBody.contentType,
+        pageBody,
+        message.pageCaptionContentType,
       );
+    }
+    if (!entries.length && primaryCapturedEntries.length) {
+      track = primaryTrack;
+      receivedResponse = true;
+      entries = primaryCapturedEntries;
     }
     if (!entries.length && pageCandidate && typeof message.pageCaptionBody === "string") {
       track = pageCandidate;

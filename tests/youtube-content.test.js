@@ -8,7 +8,7 @@ const ROOT = path.join(__dirname, "..");
 const PAGE_SOURCE = fs.readFileSync(path.join(ROOT, "youtube-page.js"), "utf8");
 const CONTENT_SOURCE = fs.readFileSync(path.join(ROOT, "youtube-content.js"), "utf8");
 
-function createSharedDocument(getPlayerResponse) {
+function createSharedDocument(getPlayerResponse, getCaptionTrack = () => null) {
   const listeners = new Map();
   return {
     readyState: "complete",
@@ -22,7 +22,7 @@ function createSharedDocument(getPlayerResponse) {
       return true;
     },
     getElementById(id) {
-      if (id === "movie_player") return { getPlayerResponse };
+      if (id === "movie_player") return { getPlayerResponse, getOption: getCaptionTrack };
       return null;
     },
     querySelector() { return null; },
@@ -135,6 +135,77 @@ test("YouTube 页面桥接在单页切换后返回当前视频的播放器响应
   assert.equal(sent[1].playerResponse.videoDetails.videoId, "9bZkp7q19f0");
   assert.equal(sent[1].captionTrackUrl, "", "不能把上一个视频捕获的字幕地址带过来");
   assert.equal(sent[1].forceRefresh, true, "强制刷新参数不能在内容脚本里丢失");
+});
+
+test("YouTube 优先用播放器当前字幕轨在页面会话读取正文", async () => {
+  const id = "dQw4w9WgXcQ";
+  const trackUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=zh-Hans&caps=asr`;
+  const sessionTrackUrl = `${trackUrl}&pot=test-session`;
+  const location = { href: `https://www.youtube.com/watch?v=${id}` };
+  const response = {
+    videoDetails: { videoId: id, title: "当前字幕轨" },
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks: [{ languageCode: "zh-Hans", kind: "asr", vssId: ".zh-Hans", baseUrl: trackUrl }],
+      },
+    },
+  };
+  const document = createSharedDocument(
+    () => response,
+    () => ({ languageCode: "zh-Hans", kind: "asr", vssId: ".zh-Hans" }),
+  );
+  const pageContext = {
+    console,
+    URL,
+    location,
+    document,
+    CustomEvent,
+    fetch: async () => ({
+      ok: true,
+      headers: { get: () => "application/json" },
+      text: async () => JSON.stringify({
+        events: [
+          { tStartMs: 1000, dDurationMs: 1000, segs: [{ utf8: "绝区零玩家到底有多压抑？" }] },
+          { tStartMs: 3000, dDurationMs: 1000, segs: [{ utf8: "这两天原神至冬新地图火了" }] },
+          { tStartMs: 5000, dDurationMs: 1000, segs: [{ utf8: "火的原因不是地图有多美多好" }] },
+        ],
+      }),
+    }),
+  };
+  pageContext.window = pageContext;
+  vm.createContext(pageContext);
+  vm.runInContext(PAGE_SOURCE, pageContext);
+  await pageContext.fetch(sessionTrackUrl);
+
+  let contentListener;
+  let sent;
+  const contentContext = {
+    console,
+    URL,
+    location,
+    document,
+    CustomEvent,
+    setTimeout,
+    setInterval() { return 1; },
+    chrome: {
+      runtime: {
+        async sendMessage(message) { sent = message; return { success: true }; },
+        onMessage: { addListener(listener) { contentListener = listener; } },
+      },
+    },
+  };
+  contentContext.globalThis = contentContext;
+  vm.createContext(contentContext);
+  vm.runInContext(CONTENT_SOURCE, contentContext);
+
+  await new Promise((resolve) => {
+    contentListener({ action: "getYoutubeTranscript" }, {}, resolve);
+  });
+
+  assert.equal(sent.activeCaptionTrack.kind, "asr");
+  assert.equal(sent.pageCaptionTrackUrl, sessionTrackUrl);
+  assert.match(sent.pageCaptionBody, /绝区零玩家到底有多压抑/);
+  assert.match(sent.pageCaptionBody, /火的原因不是地图有多美多好/);
 });
 
 test("播放器没有字幕轨时从当前 watch HTML 恢复响应", async () => {

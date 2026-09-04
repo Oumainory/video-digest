@@ -244,6 +244,68 @@
       .find((candidate) => candidate?.videoDetails?.videoId === videoId) || null;
   }
 
+  function currentCaptionTrack() {
+    const player = document.getElementById("movie_player");
+    if (typeof player?.getOption !== "function") return null;
+    try {
+      const track = player.getOption("captions", "track");
+      if (!track || typeof track !== "object") return null;
+      return {
+        languageCode: String(track.languageCode || ""),
+        tlang: String(track.tlang || ""),
+        kind: String(track.kind || ""),
+        vssId: String(track.vssId || ""),
+      };
+    } catch (error) {
+      // 播放器切换字幕轨时 getOption 可能短暂不可用。
+      return null;
+    }
+  }
+
+  function currentCaptionTrackUrl(playerResponse, activeTrack) {
+    if (!activeTrack) return "";
+    const activeLanguage = String(activeTrack.tlang || activeTrack.languageCode || "");
+    const activeKind = String(activeTrack.kind || "");
+    const capturedUrl = [...(capturedCaptionUrls.get(currentVideoId()) || [])].reverse().find((value) => {
+      try {
+        const url = new URL(value, location.href);
+        const language = String(url.searchParams.get("tlang") || url.searchParams.get("lang") || "");
+        const sameLanguage = activeLanguage && (
+          language === activeLanguage
+          || language.startsWith(`${activeLanguage}-`)
+          || activeLanguage.startsWith(`${language}-`)
+        );
+        const isAi = url.searchParams.get("kind") === "asr"
+          || url.searchParams.get("caps") === "asr";
+        const sameKind = !activeKind || (activeKind === "asr") === isAi;
+        return sameKind && sameLanguage;
+      } catch (error) {
+        return false;
+      }
+    });
+    if (capturedUrl) return capturedUrl;
+    const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!Array.isArray(tracks)) return "";
+    const activeVssId = String(activeTrack.vssId || "");
+    const match = tracks.find((track) => {
+      const sameVssId = activeVssId && String(track?.vssId || "") === activeVssId;
+      const language = String(track?.languageCode || "");
+      const sameLanguage = activeLanguage && (
+        language === activeLanguage
+        || language.startsWith(`${activeLanguage}-`)
+        || activeLanguage.startsWith(`${language}-`)
+      );
+      let trackIsAi = String(track?.kind || "") === "asr";
+      try {
+        trackIsAi ||= new URL(String(track?.baseUrl || ""), location.href)
+          .searchParams.get("caps") === "asr";
+      } catch (error) {}
+      const sameKind = !activeKind || (activeKind === "asr") === trackIsAi;
+      return sameKind && (sameVssId || sameLanguage);
+    });
+    return String(match?.baseUrl || "");
+  }
+
   document.addEventListener(CAPTION_REQUEST_EVENT, (event) => {
     let request = null;
     try { request = JSON.parse(String(event.detail || "")); } catch (error) {}
@@ -273,11 +335,14 @@
     } catch (error) {
       // YouTube 正在替换播放器对象时内部 getter 可能短暂不可用。
     }
+    const activeCaptionTrack = currentCaptionTrack();
     document.dispatchEvent(new CustomEvent(RESPONSE_EVENT, {
       detail: JSON.stringify({
         requestId,
         videoId,
         playerResponse,
+        activeCaptionTrack,
+        activeCaptionTrackUrl: currentCaptionTrackUrl(playerResponse, activeCaptionTrack),
         captionTrackUrls: capturedCaptionUrls.get(videoId) || [],
         captionBodies: capturedCaptionBodies.get(videoId) || [],
         captionTrackUrl: (() => {
