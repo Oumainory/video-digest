@@ -6,9 +6,12 @@
   const NOTE_BUTTON_ID = "video-digest-youtube-note-button";
   const PLAYER_REQUEST_EVENT = "video-digest:request-player-response";
   const PLAYER_RESPONSE_EVENT = "video-digest:player-response";
+  const PAGE_CAPTION_REQUEST_EVENT = "video-digest:request-page-caption";
+  const PAGE_CAPTION_RESPONSE_EVENT = "video-digest:page-caption";
   let bridgedPlayerResponse = null;
   const capturedCaptionUrls = new Map();
   const capturedCaptionBodies = new Map();
+  const pendingPageCaptionRequests = new Map();
   const PLAYER_BUTTON_SELECTORS = [
     ".ytp-right-controls",
     "ytd-watch-metadata #actions-inner",
@@ -103,6 +106,19 @@
       }
     } catch (error) {
       // 页面导航过程中拿到半截数据时等下一次请求即可。
+    }
+  });
+
+  document.addEventListener(PAGE_CAPTION_RESPONSE_EVENT, (event) => {
+    try {
+      const payload = JSON.parse(String(event.detail || ""));
+      const pending = pendingPageCaptionRequests.get(String(payload.requestId || ""));
+      if (!pending || payload.videoId !== videoId()) return;
+      pendingPageCaptionRequests.delete(String(payload.requestId));
+      try { clearTimeout(pending.timeout); } catch (error) {}
+      pending.resolve(payload.caption || null);
+    } catch (error) {
+      // 页面正在切换时可能收到不完整的事件，等待超时路径即可。
     }
   });
 
@@ -202,6 +218,21 @@
     return null;
   }
 
+  function requestCaptionFromPage(trackUrl, id) {
+    if (!trackUrl || !id) return Promise.resolve(null);
+    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        pendingPageCaptionRequests.delete(requestId);
+        resolve(null);
+      }, 1500);
+      pendingPageCaptionRequests.set(requestId, { resolve, timeout });
+      document.dispatchEvent(new CustomEvent(PAGE_CAPTION_REQUEST_EVENT, {
+        detail: JSON.stringify({ requestId, videoId: id, trackUrl }),
+      }));
+    });
+  }
+
   function readVideoInfo() {
     const video = videoElement();
     const title = document.querySelector("h1.ytd-watch-metadata yt-formatted-string")
@@ -250,7 +281,10 @@
     };
     let response = await chrome.runtime.sendMessage(request);
     if (response?.needsPageCaptionFetch && response.pageCaptionTrackUrl) {
-      const pageCaption = await fetchCaptionFromPage(response.pageCaptionTrackUrl, id);
+      // Monica 的关键做法：让页面世界用播放器所在的会话重新请求实际 timedtext
+      // 地址。若页面桥接不可用，再退回 isolated world 的同源请求。
+      const pageCaption = await requestCaptionFromPage(response.pageCaptionTrackUrl, id)
+        || await fetchCaptionFromPage(response.pageCaptionTrackUrl, id);
       if (pageCaption) {
         response = await chrome.runtime.sendMessage({
           ...request,

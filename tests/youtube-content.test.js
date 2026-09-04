@@ -264,3 +264,83 @@ test("后台字幕为空时使用当前 YouTube 页面会话重试", async () =>
   assert.match(messages[1].pageCaptionBody, /页面字幕/);
   assert.equal(messages[1].pageCaptionContentType, "text/xml");
 });
+
+test("页面世界按 Monica 的方式用播放器会话请求 timedtext 正文", async () => {
+  const id = "dQw4w9WgXcQ";
+  const trackUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en&expire=999`;
+  const location = { href: `https://www.youtube.com/watch?v=${id}` };
+  const response = {
+    videoDetails: { videoId: id, title: "页面会话字幕" },
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks: [{ languageCode: "en", baseUrl: trackUrl }],
+      },
+    },
+  };
+  const document = createSharedDocument(() => response);
+  let contentListener;
+  const messages = [];
+  const pageFetches = [];
+  const pageContext = {
+    console,
+    URL,
+    location,
+    document,
+    CustomEvent,
+    fetch: async (url, options) => {
+      pageFetches.push({ url, options });
+      return {
+        ok: true,
+        headers: { get: () => "text/xml" },
+        text: async () => '<transcript><text start="3" dur="2">播放器当前字幕</text></transcript>',
+        clone: () => ({ text: async () => '<transcript><text start="3" dur="2">播放器当前字幕</text></transcript>' }),
+      };
+    },
+  };
+  pageContext.window = pageContext;
+  vm.createContext(pageContext);
+  vm.runInContext(PAGE_SOURCE, pageContext);
+
+  const contentContext = {
+    console,
+    URL,
+    location,
+    document,
+    CustomEvent,
+    setTimeout,
+    setInterval() { return 1; },
+    fetch: async () => {
+      throw new Error("页面世界成功时不应再走 isolated world");
+    },
+    chrome: {
+      runtime: {
+        async sendMessage(message) {
+          messages.push(message);
+          if (messages.length === 1) {
+            return {
+              success: false,
+              error: "EMPTY_TRANSCRIPT",
+              needsPageCaptionFetch: true,
+              pageCaptionTrackUrl: trackUrl,
+            };
+          }
+          return { success: true, transcript: [{ text: "播放器当前字幕" }] };
+        },
+        onMessage: { addListener(listener) { contentListener = listener; } },
+      },
+    },
+  };
+  contentContext.globalThis = contentContext;
+  vm.createContext(contentContext);
+  vm.runInContext(CONTENT_SOURCE, contentContext);
+
+  const result = await new Promise((resolve) => {
+    contentListener({ action: "getYoutubeTranscript" }, {}, resolve);
+  });
+
+  assert.equal(result.success, true, JSON.stringify({ result, pageFetches, messages }));
+  assert.equal(pageFetches[0].url, trackUrl);
+  assert.equal(pageFetches[0].options.credentials, "include");
+  assert.equal(messages.length, 2);
+  assert.match(messages[1].pageCaptionBody, /播放器当前字幕/);
+});

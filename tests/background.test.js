@@ -35,6 +35,7 @@ function createBackground({
   storage: suppliedStorage,
   aiReply = null,
   browserTabs = [],
+  youtubeCached = null,
   youtubeCaptionEntries = [
     { text: "captured subtitle", start: 1, duration: 1.2 },
   ],
@@ -55,6 +56,7 @@ function createBackground({
   }
   const cacheStore = {};
   if (cached) cacheStore[`${BVID}:1`] = structuredClone(cached);
+  if (youtubeCached) cacheStore["youtube:dQw4w9WgXcQ:1"] = structuredClone(youtubeCached);
   const idb = createMemoryIndexedDb();
   let messageListener;
   let actionClickListener;
@@ -486,6 +488,36 @@ test("YouTube 后台空响应经页面原文重试后成功解析", async () => 
   });
   assert.equal(recovered.success, true, JSON.stringify(recovered));
   assert.equal(recovered.transcript[0].text, "页面会话恢复的字幕");
+});
+
+test("YouTube 当前页面有播放器数据时不先返回旧字幕缓存", async () => {
+  const id = "dQw4w9WgXcQ";
+  const trackUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en&kind=asr`;
+  const ctx = createBackground({
+    youtubeCached: {
+      transcript: [{ text: "旧字幕", start: 0, duration: 1 }],
+      segments: [{ text: "旧字幕", start: 0, duration: 1 }],
+    },
+    youtubeCaptionEntries: [{ text: "当前播放器字幕", start: 2, duration: 1 }],
+  });
+
+  const result = await ctx.send({
+    action: "fetchYoutubeTranscript",
+    videoId: id,
+    sourceUrl: `https://www.youtube.com/watch?v=${id}`,
+    playerResponse: {
+      videoDetails: { videoId: id, title: "当前视频" },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [{ languageCode: "en", kind: "asr", baseUrl: trackUrl }],
+        },
+      },
+    },
+  });
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.fromCache, false);
+  assert.equal(result.transcript[0].text, "当前播放器字幕");
 });
 
 test("后台把桌面操作映射到 Native Messaging，并转发任务事件", async () => {

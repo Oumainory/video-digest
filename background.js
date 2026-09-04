@@ -625,15 +625,24 @@ async function handleYoutubeTranscript(message = {}) {
   }
   const sourceId = `youtube:${youtubeId}`;
   const page = 1;
-  if (!message.forceRefresh) {
-    const cached = await BILI_CACHE.load(sourceId, { page });
-    if (cached?.transcript?.length) return { ...cached, success: true, fromCache: true };
-  }
-
   const capturedUrls = [
     ...(Array.isArray(message.captionTrackUrls) ? message.captionTrackUrls : []),
     message.captionTrackUrl,
   ].filter(Boolean);
+  const capturedBodies = Array.isArray(message.captionBodies) ? message.captionBodies : [];
+  const hasCurrentPageEvidence = Boolean(
+    (message.playerResponse && typeof message.playerResponse === "object")
+    || capturedUrls.length
+    || capturedBodies.length
+    || message.pageCaptionBody,
+  );
+  if (!message.forceRefresh) {
+    const cached = await BILI_CACHE.load(sourceId, { page });
+    if (cached?.transcript?.length && !hasCurrentPageEvidence) {
+      return { ...cached, success: true, fromCache: true };
+    }
+  }
+
   const capturedTracks = capturedUrls
     .map((url) => VIDEO_DIGEST_YOUTUBE.captionTrackFromUrl(url, youtubeId))
     .filter(Boolean)
@@ -679,7 +688,6 @@ async function handleYoutubeTranscript(message = {}) {
   const primaryTrack = activePreferred || capturedTrack || preferredTrack;
   const trackCandidates = [primaryTrack];
   if (preferredTrack?.url !== primaryTrack?.url) trackCandidates.push(preferredTrack);
-  const capturedBodies = Array.isArray(message.captionBodies) ? message.captionBodies : [];
   const sameCaptionLanguage = (left, right) => {
     const leftLanguage = String(left?.effectiveLang || left?.lang || "");
     const rightLanguage = String(right?.effectiveLang || right?.lang || "");

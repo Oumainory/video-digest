@@ -10,6 +10,8 @@
 
   const REQUEST_EVENT = "video-digest:request-player-response";
   const RESPONSE_EVENT = "video-digest:player-response";
+  const CAPTION_REQUEST_EVENT = "video-digest:request-page-caption";
+  const CAPTION_RESPONSE_EVENT = "video-digest:page-caption";
   const capturedCaptionUrls = new Map();
   const capturedCaptionBodies = new Map();
   const MAX_CAPTURED_BODY_CHARS = 2_000_000;
@@ -94,6 +96,57 @@
     rememberCaptionUrl(value.url);
   }
 
+  function responseBody(xhr) {
+    try {
+      const responseType = String(xhr.responseType || "");
+      if (!responseType || responseType === "text") return xhr.responseText || "";
+      if (responseType === "json") {
+        const value = xhr.response;
+        return typeof value === "string" ? value : JSON.stringify(value ?? "");
+      }
+    } catch (error) {
+      // 某些响应类型读取时会抛异常；只跳过正文捕获，不影响播放器请求。
+    }
+    return "";
+  }
+
+  async function fetchCaptionBodyInPage(trackUrl, id) {
+    const parsedRequest = captionRequestUrl(trackUrl);
+    if (!parsedRequest || parsedRequest.videoId !== id || typeof globalThis.fetch !== "function") return null;
+    const candidates = [parsedRequest.url];
+    if (parsedRequest.url.searchParams.get("fmt") !== "json3") {
+      const json3 = new URL(parsedRequest.url);
+      json3.searchParams.set("fmt", "json3");
+      candidates.push(json3);
+    }
+    for (const url of candidates) {
+      try {
+        const response = await globalThis.fetch(url.toString(), {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!response?.ok) continue;
+        const body = await response.text();
+        if (!body.trim() || body.length > MAX_CAPTURED_BODY_CHARS) continue;
+        const contentType = String(response.headers?.get?.("content-type") || "");
+        rememberCaptionBody(url.toString(), body, contentType);
+        return { url: url.toString(), body, contentType };
+      } catch (error) {
+        // 尝试下一种格式；页面脚本不能把字幕请求异常传给播放器。
+      }
+    }
+    return null;
+  }
+
+  function rememberExistingCaptionRequests() {
+    try {
+      const entries = globalThis.performance?.getEntriesByType?.("resource") || [];
+      for (const entry of entries) rememberCaptionUrl(entry?.name);
+    } catch (error) {
+      // Resource Timing 在隐私设置下可能不可用。
+    }
+  }
+
   // 借鉴成熟视频摘要扩展的做法：在页面脚本发起请求前观察官方字幕 URL，
   // 用于识别播放器当前实际请求的字幕轨，避免静态 player response 与活动轨不一致。
   function observeCaptionRequests() {
@@ -122,8 +175,7 @@
       const capture = () => {
         const requestUrl = this.__videoDigestCaptionUrl || this.responseURL;
         if (this.status >= 200 && this.status < 300) {
-          let body = "";
-          try { body = this.responseType && this.responseType !== "text" ? "" : this.responseText; } catch (error) {}
+          const body = responseBody(this);
           let contentType = "";
           try { contentType = this.getResponseHeader?.("content-type") || ""; } catch (error) {}
           rememberCaptionBody(requestUrl, body, contentType);
@@ -192,9 +244,29 @@
       .find((candidate) => candidate?.videoDetails?.videoId === videoId) || null;
   }
 
+  document.addEventListener(CAPTION_REQUEST_EVENT, (event) => {
+    let request = null;
+    try { request = JSON.parse(String(event.detail || "")); } catch (error) {}
+    const id = currentVideoId();
+    if (!request?.requestId || request.videoId !== id) return;
+    const respond = (caption) => {
+      document.dispatchEvent(new CustomEvent(CAPTION_RESPONSE_EVENT, {
+        detail: JSON.stringify({
+          requestId: String(request.requestId),
+          videoId: id,
+          caption,
+        }),
+      }));
+    };
+    void fetchCaptionBodyInPage(request.trackUrl, id)
+      .then(respond)
+      .catch(() => respond(null));
+  });
+
   document.addEventListener(REQUEST_EVENT, (event) => {
     const requestId = String(event.detail || "");
     const videoId = currentVideoId();
+    rememberExistingCaptionRequests();
     let playerResponse = null;
     try {
       playerResponse = videoId ? currentPlayerResponse(videoId) : null;
