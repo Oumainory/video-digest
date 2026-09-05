@@ -21,6 +21,7 @@ const TASKS = require("../lib/task-manager.js");
 const NOTE_DB = require("../lib/note-db.js");
 const IDB = require("../lib/idb.js");
 const YOUTUBE = require("../lib/youtube-api.js");
+const SUPADATA = require("../lib/supadata-api.js");
 const COMPANION_PROTOCOL = require("../lib/companion-protocol.js");
 const COMPANION_BRIDGE = require("../lib/companion-bridge.js");
 const { createMemoryIndexedDb } = require("./helpers/memory-idb.js");
@@ -39,6 +40,8 @@ function createBackground({
   youtubeCaptionEntries = [
     { text: "captured subtitle", start: 1, duration: 1.2 },
   ],
+  supadataApiKey = "",
+  supadataResponse = null,
   companionPort = null,
 } = {}) {
   const storage = suppliedStorage || memoryStorage(initial);
@@ -52,6 +55,12 @@ function createBackground({
       aiModel: "test-model",
       aiConcurrency: 1,
       aiTimeoutSeconds: 30,
+    };
+  }
+  if (supadataApiKey) {
+    storage.data[SETTINGS.STORAGE_KEY] = {
+      ...(storage.data[SETTINGS.STORAGE_KEY] || {}),
+      supadataApiKey,
     };
   }
   const cacheStore = {};
@@ -69,6 +78,7 @@ function createBackground({
   const broadcasts = [];
   const panelCalls = [];
   const youtubeCaptionRequests = [];
+  const supadataRequests = [];
   const tabsById = new Map(browserTabs.map((tab) => [tab.id, { ...tab }]));
   const context = {
     console,
@@ -84,6 +94,19 @@ function createBackground({
         return {
           ok: fs.existsSync(file),
           text: async () => fs.readFileSync(file, "utf8"),
+        };
+      }
+      if (target.startsWith("https://api.supadata.ai/")) {
+        supadataRequests.push({ url: target, options });
+        const reply = typeof supadataResponse === "function"
+          ? await supadataResponse({ url: target, options })
+          : supadataResponse;
+        const status = Number(reply?.status) || 200;
+        const body = reply?.body ?? reply ?? {};
+        return {
+          ok: status >= 200 && status < 300,
+          status,
+          json: async () => structuredClone(body),
         };
       }
       if (aiReply !== null) {
@@ -198,6 +221,7 @@ function createBackground({
         return structuredClone(entries);
       },
     },
+    VIDEO_DIGEST_SUPADATA: SUPADATA,
     BILI_COMPANION: COMPANION_PROTOCOL,
     BILI_COMPANION_BRIDGE: COMPANION_BRIDGE,
   };
@@ -222,6 +246,7 @@ function createBackground({
     idb,
     panelCalls,
     youtubeCaptionRequests,
+    supadataRequests,
     events: {
       actionClick(tab) { actionClickListener?.(tab); },
       tabActivated(info) { return tabActivatedListener?.(info); },
@@ -586,6 +611,82 @@ test("YouTube 同一字幕轨的多次会话响应合并成完整字幕", async 
 
   assert.equal(result.success, true, JSON.stringify(result));
   assert.equal(result.transcript.map((entry) => entry.text).join("|"), "开头字幕|后续字幕");
+});
+
+test("配置 Supadata 后优先使用上游同款原生字幕并保留开头片段", async () => {
+  const id = "dQw4w9WgXcQ";
+  const trackUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=zh-Hans&kind=asr`;
+  const ctx = createBackground({
+    supadataApiKey: "supadata-test-key",
+    supadataResponse: {
+      lang: "zh",
+      availableLangs: ["zh", "en"],
+      content: [
+        { text: "绝区零玩家到底有多压抑？", offset: 1000, duration: 1000 },
+        { text: "这两天原神至冬新地图火了", offset: 3000, duration: 1000 },
+        { text: "火的原因不是地图有多美多好", offset: 5000, duration: 1000 },
+      ],
+    },
+    youtubeCaptionEntries: () => {
+      throw new Error("配置 Supadata 后不应先走浏览器 timedtext");
+    },
+  });
+
+  const result = await ctx.send({
+    action: "fetchYoutubeTranscript",
+    videoId: id,
+    sourceUrl: `https://www.youtube.com/watch?v=${id}`,
+    activeCaptionTrack: { languageCode: "zh-Hans", kind: "asr" },
+    captionTrackUrl: trackUrl,
+    playerResponse: {
+      videoDetails: { videoId: id, title: "Supadata 测试视频" },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [{ languageCode: "zh-Hans", kind: "asr", baseUrl: trackUrl }],
+        },
+      },
+    },
+  });
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.transcriptSource, "supadata-native");
+  assert.deepEqual(
+    result.transcript.map((entry) => entry.text),
+    ["绝区零玩家到底有多压抑？", "这两天原神至冬新地图火了", "火的原因不是地图有多美多好"],
+  );
+  assert.equal(ctx.youtubeCaptionRequests.length, 0);
+  assert.equal(ctx.supadataRequests.length, 1);
+  assert.equal(ctx.supadataRequests[0].options.headers["x-api-key"], "supadata-test-key");
+  assert.equal(new URL(ctx.supadataRequests[0].url).searchParams.get("mode"), "native");
+});
+
+test("Supadata 暂时失败时退回现有 YouTube 官方字幕链路", async () => {
+  const id = "dQw4w9WgXcQ";
+  const trackUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en`;
+  const ctx = createBackground({
+    supadataApiKey: "supadata-test-key",
+    supadataResponse: { status: 503, body: { message: "temporarily unavailable" } },
+    youtubeCaptionEntries: [{ text: "浏览器官方字幕回退", start: 2, duration: 1 }],
+  });
+  const result = await ctx.send({
+    action: "fetchYoutubeTranscript",
+    videoId: id,
+    captionTrackUrl: trackUrl,
+    playerResponse: {
+      videoDetails: { videoId: id },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [{ languageCode: "en", baseUrl: trackUrl }],
+        },
+      },
+    },
+  });
+
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.transcriptSource, "youtube-native");
+  assert.equal(result.transcript[0].text, "浏览器官方字幕回退");
+  assert.equal(ctx.supadataRequests.length, 1);
+  assert.deepEqual(ctx.youtubeCaptionRequests, [trackUrl]);
 });
 
 test("后台把桌面操作映射到 Native Messaging，并转发任务事件", async () => {

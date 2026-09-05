@@ -123,6 +123,8 @@ var BILI_SETTINGS = (() => {
     presetId: DEFAULT_PRESET.id,
     protocol: DEFAULT_PRESET.protocol,
     aiApiKey: "",
+    // 可选的 YouTube 原生字幕服务。没有配置时继续使用页面官方字幕直连。
+    supadataApiKey: "",
     aiBaseUrl: DEFAULT_PRESET.baseUrl,
     aiModel: DEFAULT_PRESET.model,
     aiConcurrency: LIMITS.concurrency.default,
@@ -291,6 +293,8 @@ var BILI_SETTINGS = (() => {
       presetId: preset.id,
       protocol,
       aiApiKey: typeof source.aiApiKey === "string" ? source.aiApiKey.trim() : "",
+      supadataApiKey:
+        typeof source.supadataApiKey === "string" ? source.supadataApiKey.trim() : "",
       aiBaseUrl: checked.ok ? checked.url : rawBaseUrl,
       aiModel: rawModel.slice(0, 200),
       aiConcurrency: clampNumber(source.aiConcurrency, LIMITS.concurrency),

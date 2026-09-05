@@ -12,10 +12,23 @@
     <section class="card">
       <h2>字幕</h2>
       <p class="hint">
-        字幕由 B 站官方接口提供，<strong>无需配置密钥</strong>。
-        部分字幕（含 AI 生成字幕）仅在登录后可见，
-        请先在浏览器中登录 B 站账号。
+        B 站字幕由网站官方接口提供，<strong>无需配置密钥</strong>。
+        YouTube 默认读取播放器提供的官方字幕；如果遇到字幕正文为空、开头缺失或加载不完整，
+        可以配置 Supadata 作为 YouTube 原生字幕兜底。Supadata 只读取已有字幕，不生成 AI 字幕。
       </p>
+      <label class="field">
+        <span class="field-label">Supadata API Key（可选）</span>
+        <input id="supadataApiKey" type="password" autocomplete="off" spellcheck="false"
+               placeholder="配置后优先使用 Supadata 获取 YouTube 原生字幕">
+        <span class="field-hint">
+          密钥只保存于本机，并仅发送至 Supadata。每次字幕请求会消耗 Supadata 配额；
+          <a href="https://dash.supadata.ai/auth/sign-up" target="_blank" rel="noreferrer">获取 Supadata 密钥 →</a>
+        </span>
+      </label>
+      <div class="actions">
+        <button id="saveSupadataBtn" class="ghost-btn" type="button">保存字幕设置</button>
+        <span id="subtitleStatus" class="status" role="status"></span>
+      </div>
     </section>
 
     <section class="card">

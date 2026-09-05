@@ -768,7 +768,8 @@ function renderMeta(videoInfo, result, fromCache) {
 
   const badge = el("subtitleBadge");
   if (result) {
-    badge.textContent = `${result.languageLabel || result.language}${result.isAiSubtitle ? " · AI" : ""}`;
+    const sourceLabel = result.transcriptSource === "supadata-native" ? " · Supadata" : "";
+    badge.textContent = `${result.languageLabel || result.language}${result.isAiSubtitle ? " · AI" : ""}${sourceLabel}`;
     badge.hidden = false;
   } else {
     badge.hidden = true;

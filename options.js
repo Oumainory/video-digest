@@ -1,6 +1,6 @@
 /**
  * Bilibili Digest — 设置页（BYOK）。密钥只写 chrome.storage.local，
- * 只发往用户自己填的地址；字幕功能不依赖这里的任何配置。
+ * 只发往用户自己填的地址；YouTube 的 Supadata 字幕兜底密钥单独保存。
  * host 权限也在这里申请：chrome.permissions.request 必须在用户手势里调用。
  */
 
@@ -11,6 +11,7 @@ const fields = {
   protocol: document.getElementById("protocol"),
   baseUrl: document.getElementById("aiBaseUrl"),
   apiKey: document.getElementById("aiApiKey"),
+  supadataApiKey: document.getElementById("supadataApiKey"),
   model: document.getElementById("aiModel"),
   concurrency: document.getElementById("aiConcurrency"),
   timeout: document.getElementById("aiTimeoutSeconds"),
@@ -63,6 +64,7 @@ function currentSettings() {
     protocol: custom ? fields.protocol.value : undefined,
     aiBaseUrl: custom ? fields.baseUrl.value : undefined,
     aiApiKey: fields.apiKey.value,
+    supadataApiKey: fields.supadataApiKey.value,
     aiModel: fields.model.value,
     aiConcurrency: fields.concurrency.value,
     aiTimeoutSeconds: fields.timeout.value,
@@ -207,6 +209,7 @@ async function load() {
   fields.protocol.value = settings.protocol;
   fields.baseUrl.value = settings.aiBaseUrl;
   fields.apiKey.value = settings.aiApiKey;
+  fields.supadataApiKey.value = settings.supadataApiKey;
   fields.model.value = settings.aiModel;
   fields.concurrency.value = settings.aiConcurrency;
   fields.timeout.value = settings.aiTimeoutSeconds;
@@ -384,6 +387,29 @@ async function testConnection() {
   }
 }
 
+async function saveSupadataKey() {
+  try {
+    const stored = await chrome.storage.local.get(BILI_SETTINGS.STORAGE_KEY);
+    const settings = BILI_SETTINGS.normalize({
+      ...stored[BILI_SETTINGS.STORAGE_KEY],
+      supadataApiKey: fields.supadataApiKey.value,
+    });
+    await chrome.storage.local.set({ [BILI_SETTINGS.STORAGE_KEY]: settings });
+    fields.supadataApiKey.value = settings.supadataApiKey;
+    const status = document.getElementById("subtitleStatus");
+    status.textContent = settings.supadataApiKey
+      ? "Supadata 密钥已保存"
+      : "Supadata 密钥已清除";
+    setTimeout(() => {
+      if (status.textContent === "Supadata 密钥已保存" || status.textContent === "Supadata 密钥已清除") {
+        status.textContent = "";
+      }
+    }, 4000);
+  } catch (error) {
+    document.getElementById("subtitleStatus").textContent = `保存失败：${error.message}`;
+  }
+}
+
 function showBackupStatus(text, { sticky = false } = {}) {
   const node = document.getElementById("backupStatus");
   node.textContent = text;
@@ -467,6 +493,7 @@ fields.baseUrl.addEventListener("change", clearModelOptions);
 modelFilter.addEventListener("input", renderModelOptions);
 
 document.getElementById("saveBtn").addEventListener("click", save);
+document.getElementById("saveSupadataBtn").addEventListener("click", saveSupadataKey);
 document.getElementById("fetchModelsBtn").addEventListener("click", fetchModels);
 document.getElementById("testBtn").addEventListener("click", testConnection);
 document.getElementById("backupExportBtn").addEventListener("click", exportBackup);
@@ -480,6 +507,10 @@ for (const input of [fields.baseUrl, fields.apiKey, fields.model]) {
     if (event.key === "Enter") save();
   });
 }
+
+fields.supadataApiKey.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") saveSupadataKey();
+});
 
 async function saveUiFontScale() {
   const stored = await chrome.storage.local.get(BILI_SETTINGS.STORAGE_KEY);

@@ -12,7 +12,8 @@
     "https://*.hdslb.com/*",
     "https://www.youtube.com/*",
     "https://youtube.com/*",
-    "https://m.youtube.com/*"
+    "https://m.youtube.com/*",
+    "https://api.supadata.ai/*"
   ],
   "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
   "icons": {

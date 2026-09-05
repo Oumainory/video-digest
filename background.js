@@ -8,6 +8,7 @@ importScripts(
   "lib/wbi.js",
   "lib/bili-api.js",
   "lib/youtube-api.js",
+  "lib/supadata-api.js",
   "lib/transcript.js",
   "lib/ai.js",
   "lib/ai-provider.js",
@@ -618,6 +619,72 @@ if (chrome.action?.onClicked?.addListener) {
 
 // YouTube 只读页面本身已经提供的官方 caption track。内容脚本负责从页面
 // 取 player response，service worker 负责下载正文并复用现有的分段逻辑。
+function buildYoutubeTranscriptResult({
+  youtubeId,
+  entries,
+  track,
+  tracks,
+  playerResponse,
+  sourceUrl,
+  pageInfo,
+  transcriptSource = "youtube-native",
+}) {
+  const texts = BILI_TRANSCRIPT.buildTranscriptTexts(entries);
+  return {
+    videoInfo: VIDEO_DIGEST_YOUTUBE.normalizeVideoInfo(
+      playerResponse,
+      youtubeId,
+      sourceUrl,
+      pageInfo,
+    ),
+    transcript: entries,
+    segments: BILI_TRANSCRIPT.groupTranscriptEntries(entries),
+    transcriptText: texts.plain,
+    transcriptTextTimestamped: texts.timestamped,
+    language: track.lang,
+    languageLabel: track.langLabel,
+    isAiSubtitle: Boolean(track.isAi),
+    transcriptSource,
+    availableTracks: tracks.map(({ lang, langLabel, isAi }) => ({ lang, langLabel, isAi })),
+  };
+}
+
+async function fetchSupadataYoutubeTranscript({
+  youtubeId,
+  settings,
+  language,
+  playerResponse,
+  sourceUrl,
+  pageInfo,
+  tracks,
+  activeCaptionTrack,
+}) {
+  const fetched = await VIDEO_DIGEST_SUPADATA.fetchTranscript(youtubeId, {
+    apiKey: settings.supadataApiKey,
+    language,
+    fetchImpl: globalThis.fetch,
+  });
+  const normalizedLanguage = fetched.language
+    || VIDEO_DIGEST_SUPADATA.normalizeLanguage(language);
+  const track = {
+    lang: normalizedLanguage,
+    langLabel: normalizedLanguage,
+    isAi: String(activeCaptionTrack?.kind || "") === "asr",
+  };
+  const result = buildYoutubeTranscriptResult({
+    youtubeId,
+    entries: fetched.entries,
+    track,
+    tracks,
+    playerResponse,
+    sourceUrl,
+    pageInfo,
+    transcriptSource: "supadata-native",
+  });
+  await BILI_CACHE.save(`youtube:${youtubeId}`, result, { page: 1 });
+  return { ...result, success: true, fromCache: false };
+}
+
 async function handleYoutubeTranscript(message = {}) {
   const youtubeId = VIDEO_DIGEST_YOUTUBE.parseVideoId(message.videoId || message.url);
   if (!youtubeId) {
@@ -630,6 +697,13 @@ async function handleYoutubeTranscript(message = {}) {
     message.captionTrackUrl,
   ].filter(Boolean);
   const capturedBodies = Array.isArray(message.captionBodies) ? message.captionBodies : [];
+  const settings = await getSettings();
+  const preference = Array.isArray(message.languagePreference) && message.languagePreference.length
+    ? message.languagePreference
+    : settings.subtitleLangPreference;
+  const activeCaptionTrack = message.activeCaptionTrack && typeof message.activeCaptionTrack === "object"
+    ? message.activeCaptionTrack
+    : null;
   const hasCurrentPageEvidence = Boolean(
     (message.playerResponse && typeof message.playerResponse === "object")
     || capturedUrls.length
@@ -638,7 +712,9 @@ async function handleYoutubeTranscript(message = {}) {
   );
   if (!message.forceRefresh) {
     const cached = await BILI_CACHE.load(sourceId, { page });
-    if (cached?.transcript?.length && !hasCurrentPageEvidence) {
+    const canUseCachedSource = !settings.supadataApiKey
+      || cached?.transcriptSource === "supadata-native";
+    if (cached?.transcript?.length && !hasCurrentPageEvidence && canUseCachedSource) {
       return { ...cached, success: true, fromCache: true };
     }
   }
@@ -650,7 +726,11 @@ async function handleYoutubeTranscript(message = {}) {
   const capturedTrack = capturedTracks.length
     ? capturedTracks[capturedTracks.length - 1]
     : null;
-  if ((!message.playerResponse || typeof message.playerResponse !== "object") && !capturedTracks.length) {
+  if (
+    (!message.playerResponse || typeof message.playerResponse !== "object")
+    && !capturedTracks.length
+    && !settings.supadataApiKey
+  ) {
     return {
       success: false,
       error: "YOUTUBE_PLAYER_DATA_UNAVAILABLE",
@@ -663,20 +743,35 @@ async function handleYoutubeTranscript(message = {}) {
     youtubeId,
   );
   if (!tracks.length && capturedTracks.length) tracks.push(...capturedTracks);
+
+  let supadataError = null;
+  const supadataLanguage = activeCaptionTrack?.tlang
+    || activeCaptionTrack?.languageCode
+    || preference[0]
+    || "en";
+  if (settings.supadataApiKey && !tracks.length) {
+    try {
+      return await fetchSupadataYoutubeTranscript({
+        youtubeId,
+        settings,
+        language: supadataLanguage,
+        playerResponse: message.playerResponse,
+        sourceUrl: message.sourceUrl,
+        pageInfo: message.pageInfo,
+        tracks,
+        activeCaptionTrack,
+      });
+    } catch (error) {
+      supadataError = error;
+    }
+  }
   if (!tracks.length) {
     return {
       success: false,
-      error: "NO_SUBTITLE",
-      message: "这个 YouTube 视频没有可用的官方字幕。",
+      error: supadataError?.code || "NO_SUBTITLE",
+      message: supadataError?.message || "这个 YouTube 视频没有可用的官方字幕。",
     };
   }
-  const settings = await getSettings();
-  const preference = Array.isArray(message.languagePreference) && message.languagePreference.length
-    ? message.languagePreference
-    : settings.subtitleLangPreference;
-  const activeCaptionTrack = message.activeCaptionTrack && typeof message.activeCaptionTrack === "object"
-    ? message.activeCaptionTrack
-    : null;
   const activeTrack = activeCaptionTrack && [...tracks].sort((left, right) => {
     const score = (track) => {
       const activeVssId = String(activeCaptionTrack.vssId || "");
@@ -719,6 +814,26 @@ async function handleYoutubeTranscript(message = {}) {
   // 播放器实际选中的字幕轨优先于默认语言偏好；这样同为 zh-Hans 时不会误取
   // 另一条人工/自动/翻译轨，导致播放器和扩展的开头内容不一致。
   const preferredTrack = activeTrack || VIDEO_DIGEST_YOUTUBE.pickCaptionTrack(tracks, preference);
+
+  // 配置 Supadata 后采用上游 youtube-digest 的原生字幕链路。它从服务端
+  // 获取完整字幕，绕过浏览器 timedtext 会话参数缺失导致的空正文/开头缺失。
+  if (settings.supadataApiKey) {
+    try {
+      return await fetchSupadataYoutubeTranscript({
+        youtubeId,
+        settings,
+        language: preferredTrack?.effectiveLang || preferredTrack?.lang || supadataLanguage,
+        playerResponse: message.playerResponse,
+        sourceUrl: message.sourceUrl,
+        pageInfo: message.pageInfo,
+        tracks,
+        activeCaptionTrack,
+      });
+    } catch (error) {
+      supadataError = error;
+    }
+  }
+
   // playerResponse 里的 baseUrl 可能缺少当前播放会话动态附加的参数，表现为
   // HTTP 200 但正文为空。页面播放器实际请求过的 timedtext URL 已经过同视频
   // 校验；与首选语言匹配时优先使用活动轨，静态轨道只负责语言选择和兜底。
@@ -826,24 +941,15 @@ async function handleYoutubeTranscript(message = {}) {
         pageCaptionTrackUrl: primaryTrack.url,
       };
     }
-    const videoInfo = VIDEO_DIGEST_YOUTUBE.normalizeVideoInfo(
-      message.playerResponse,
+    const result = buildYoutubeTranscriptResult({
       youtubeId,
-      message.sourceUrl,
-      message.pageInfo,
-    );
-    const texts = BILI_TRANSCRIPT.buildTranscriptTexts(entries);
-    const result = {
-      videoInfo,
-      transcript: entries,
-      segments: BILI_TRANSCRIPT.groupTranscriptEntries(entries),
-      transcriptText: texts.plain,
-      transcriptTextTimestamped: texts.timestamped,
-      language: track.lang,
-      languageLabel: track.langLabel,
-      isAiSubtitle: track.isAi,
-      availableTracks: tracks.map(({ lang, langLabel, isAi }) => ({ lang, langLabel, isAi })),
-    };
+      entries,
+      track,
+      tracks,
+      playerResponse: message.playerResponse,
+      sourceUrl: message.sourceUrl,
+      pageInfo: message.pageInfo,
+    });
     await BILI_CACHE.save(sourceId, result, { page });
     return { ...result, success: true, fromCache: false };
   } catch (error) {

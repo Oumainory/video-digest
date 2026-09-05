@@ -241,7 +241,8 @@ test("安装时索要的权限只覆盖官方字幕所需平台，且全部走 h
   const hosts = manifest.host_permissions || [];
   assert.ok(hosts.every((host) => host.startsWith("https://")), "不应出现明文 http");
 
-  // 字幕 JSON 托管在 hdslb CDN，YouTube 字幕由页面官方 track 提供。
+  // 字幕 JSON 托管在 hdslb CDN，YouTube 字幕由页面官方 track 或可选的
+  // Supadata 原生字幕服务提供。
   assert.ok(hosts.some((host) => host.includes("api.bilibili.com")));
   assert.ok(hosts.some((host) => host.includes("hdslb.com")));
   assert.ok(hosts.some((host) => host.includes("youtube.com")));
@@ -251,7 +252,7 @@ test("安装时索要的权限只覆盖官方字幕所需平台，且全部走 h
   for (const host of hosts) {
     assert.match(
       host,
-      /bilibili\.com|hdslb\.com|youtube\.com/,
+      /bilibili\.com|hdslb\.com|youtube\.com|supadata\.ai/,
       `出现了预期之外的主机权限：${host}`,
     );
   }
