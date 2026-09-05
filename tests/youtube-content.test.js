@@ -8,7 +8,11 @@ const ROOT = path.join(__dirname, "..");
 const PAGE_SOURCE = fs.readFileSync(path.join(ROOT, "youtube-page.js"), "utf8");
 const CONTENT_SOURCE = fs.readFileSync(path.join(ROOT, "youtube-content.js"), "utf8");
 
-function createSharedDocument(getPlayerResponse, getCaptionTrack = () => null) {
+function createSharedDocument(
+  getPlayerResponse,
+  getCaptionTrack = () => null,
+  setCaptionOption = () => {},
+) {
   const listeners = new Map();
   return {
     readyState: "complete",
@@ -22,7 +26,13 @@ function createSharedDocument(getPlayerResponse, getCaptionTrack = () => null) {
       return true;
     },
     getElementById(id) {
-      if (id === "movie_player") return { getPlayerResponse, getOption: getCaptionTrack };
+      if (id === "movie_player") {
+        return {
+          getPlayerResponse,
+          getOption: getCaptionTrack,
+          setOption: setCaptionOption,
+        };
+      }
       return null;
     },
     querySelector() { return null; },
@@ -208,6 +218,89 @@ test("YouTube 优先用播放器当前字幕轨在页面会话读取正文", asy
   assert.match(sent.pageCaptionBody, /火的原因不是地图有多美多好/);
 });
 
+test("没有现成 timedtext 请求时，先让播放器重载当前 CC 轨再获取完整正文", async () => {
+  const id = "dQw4w9WgXcQ";
+  const staticTrackUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=zh-Hans&caps=asr`;
+  const sessionTrackUrl = `${staticTrackUrl}&pot=reload-session`;
+  const location = { href: `https://www.youtube.com/watch?v=${id}` };
+  const response = {
+    videoDetails: { videoId: id, title: "重载字幕轨" },
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks: [{
+          languageCode: "zh-Hans",
+          kind: "asr",
+          vssId: ".zh-Hans",
+          baseUrl: staticTrackUrl,
+        }],
+      },
+    },
+  };
+  let pageContext;
+  let reloads = 0;
+  const document = createSharedDocument(
+    () => response,
+    () => ({ languageCode: "zh-Hans", kind: "asr", vssId: ".zh-Hans" }),
+    () => {
+      reloads += 1;
+      void pageContext.fetch(sessionTrackUrl);
+    },
+  );
+  pageContext = {
+    console,
+    URL,
+    location,
+    document,
+    CustomEvent,
+    setTimeout,
+    fetch: async () => ({
+      ok: true,
+      headers: { get: () => "application/json" },
+      text: async () => JSON.stringify({
+        events: [
+          { tStartMs: 1000, dDurationMs: 1000, segs: [{ utf8: "绝区零玩家到底有多压抑？" }] },
+          { tStartMs: 3000, dDurationMs: 1000, segs: [{ utf8: "这两天原神至冬新地图火了" }] },
+          { tStartMs: 5000, dDurationMs: 1000, segs: [{ utf8: "火的原因不是地图有多美多好" }] },
+        ],
+      }),
+    }),
+  };
+  pageContext.window = pageContext;
+  vm.createContext(pageContext);
+  vm.runInContext(PAGE_SOURCE, pageContext);
+
+  let contentListener;
+  let sent;
+  const contentContext = {
+    console,
+    URL,
+    location,
+    document,
+    CustomEvent,
+    setTimeout,
+    setInterval() { return 1; },
+    chrome: {
+      runtime: {
+        async sendMessage(message) { sent = message; return { success: true }; },
+        onMessage: { addListener(listener) { contentListener = listener; } },
+      },
+    },
+  };
+  contentContext.globalThis = contentContext;
+  vm.createContext(contentContext);
+  vm.runInContext(CONTENT_SOURCE, contentContext);
+
+  await new Promise((resolve) => {
+    contentListener({ action: "getYoutubeTranscript" }, {}, resolve);
+  });
+
+  assert.equal(reloads, 1);
+  assert.equal(sent.pageCaptionTrackUrl, sessionTrackUrl);
+  assert.match(sent.pageCaptionBody, /绝区零玩家到底有多压抑/);
+  assert.match(sent.pageCaptionBody, /这两天原神至冬新地图火了/);
+  assert.match(sent.pageCaptionBody, /火的原因不是地图有多美多好/);
+});
+
 test("播放器没有字幕轨时从当前 watch HTML 恢复响应", async () => {
   const id = "dQw4w9WgXcQ";
   const location = { href: `https://www.youtube.com/watch?v=${id}` };
@@ -220,6 +313,7 @@ test("播放器没有字幕轨时从当前 watch HTML 恢复响应", async () =>
     location,
     document,
     CustomEvent,
+    setTimeout,
   };
   pageContext.window = pageContext;
   vm.createContext(pageContext);
@@ -282,7 +376,7 @@ test("后台字幕为空时使用当前 YouTube 页面会话重试", async () =>
   let contentListener;
   const messages = [];
   const fetches = [];
-  const pageContext = { console, URL, location, document, CustomEvent };
+  const pageContext = { console, URL, location, document, CustomEvent, setTimeout };
   pageContext.window = pageContext;
   vm.createContext(pageContext);
   vm.runInContext(PAGE_SOURCE, pageContext);
@@ -329,7 +423,7 @@ test("后台字幕为空时使用当前 YouTube 页面会话重试", async () =>
     contentListener({ action: "getYoutubeTranscript" }, {}, resolve);
   });
   assert.equal(result.success, true);
-  assert.equal(fetches[0].url, trackUrl, "页面重试应先请求原始 XML 地址");
+  assert.equal(fetches[0].url, `${trackUrl}&fmt=json3`, "页面重试应优先请求 JSON3");
   assert.equal(fetches[0].options.credentials, "include");
   assert.equal(messages[1].pageCaptionFetchAttempted, true);
   assert.match(messages[1].pageCaptionBody, /页面字幕/);
@@ -358,6 +452,7 @@ test("页面世界按 Monica 的方式用播放器会话请求 timedtext 正文"
     location,
     document,
     CustomEvent,
+    setTimeout,
     fetch: async (url, options) => {
       pageFetches.push({ url, options });
       return {
@@ -410,7 +505,7 @@ test("页面世界按 Monica 的方式用播放器会话请求 timedtext 正文"
   });
 
   assert.equal(result.success, true, JSON.stringify({ result, pageFetches, messages }));
-  assert.equal(pageFetches[0].url, trackUrl);
+  assert.equal(pageFetches[0].url, `${trackUrl}&fmt=json3`);
   assert.equal(pageFetches[0].options.credentials, "include");
   assert.equal(messages.length, 2);
   assert.match(messages[1].pageCaptionBody, /播放器当前字幕/);

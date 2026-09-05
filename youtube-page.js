@@ -12,6 +12,10 @@
   const RESPONSE_EVENT = "video-digest:player-response";
   const CAPTION_REQUEST_EVENT = "video-digest:request-page-caption";
   const CAPTION_RESPONSE_EVENT = "video-digest:page-caption";
+  const CAPTION_PREPARE_REQUEST_EVENT = "video-digest:prepare-page-caption";
+  const CAPTION_PREPARE_RESPONSE_EVENT = "video-digest:page-caption-ready";
+  const CAPTION_CAPTURE_WAIT_MS = 3000;
+  const CAPTION_CAPTURE_POLL_MS = 100;
   const capturedCaptionUrls = new Map();
   const capturedCaptionBodies = new Map();
   const MAX_CAPTURED_BODY_CHARS = 2_000_000;
@@ -113,12 +117,13 @@
   async function fetchCaptionBodyInPage(trackUrl, id) {
     const parsedRequest = captionRequestUrl(trackUrl);
     if (!parsedRequest || parsedRequest.videoId !== id || typeof globalThis.fetch !== "function") return null;
-    const candidates = [parsedRequest.url];
+    const candidates = [];
     if (parsedRequest.url.searchParams.get("fmt") !== "json3") {
       const json3 = new URL(parsedRequest.url);
       json3.searchParams.set("fmt", "json3");
       candidates.push(json3);
     }
+    candidates.push(parsedRequest.url);
     for (const url of candidates) {
       try {
         const response = await globalThis.fetch(url.toString(), {
@@ -262,11 +267,11 @@
     }
   }
 
-  function currentCaptionTrackUrl(playerResponse, activeTrack) {
+  function capturedCaptionTrackUrl(activeTrack, id = currentVideoId()) {
     if (!activeTrack) return "";
     const activeLanguage = String(activeTrack.tlang || activeTrack.languageCode || "");
     const activeKind = String(activeTrack.kind || "");
-    const capturedUrl = [...(capturedCaptionUrls.get(currentVideoId()) || [])].reverse().find((value) => {
+    return [...(capturedCaptionUrls.get(id) || [])].reverse().find((value) => {
       try {
         const url = new URL(value, location.href);
         const language = String(url.searchParams.get("tlang") || url.searchParams.get("lang") || "");
@@ -282,29 +287,57 @@
       } catch (error) {
         return false;
       }
-    });
-    if (capturedUrl) return capturedUrl;
-    const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (!Array.isArray(tracks)) return "";
-    const activeVssId = String(activeTrack.vssId || "");
-    const match = tracks.find((track) => {
-      const sameVssId = activeVssId && String(track?.vssId || "") === activeVssId;
-      const language = String(track?.languageCode || "");
-      const sameLanguage = activeLanguage && (
-        language === activeLanguage
-        || language.startsWith(`${activeLanguage}-`)
-        || activeLanguage.startsWith(`${language}-`)
-      );
-      let trackIsAi = String(track?.kind || "") === "asr";
-      try {
-        trackIsAi ||= new URL(String(track?.baseUrl || ""), location.href)
-          .searchParams.get("caps") === "asr";
-      } catch (error) {}
-      const sameKind = !activeKind || (activeKind === "asr") === trackIsAi;
-      return sameKind && (sameVssId || sameLanguage);
-    });
-    return String(match?.baseUrl || "");
+    }) || "";
   }
+
+  function waitForCapturedCaptionUrl(id, activeTrack) {
+    return new Promise((resolve) => {
+      const deadline = Date.now() + CAPTION_CAPTURE_WAIT_MS;
+      const poll = () => {
+        rememberExistingCaptionRequests();
+        const currentTrack = currentCaptionTrack() || activeTrack;
+        const url = capturedCaptionTrackUrl(currentTrack, id);
+        if (url || Date.now() >= deadline) {
+          resolve(url || "");
+          return;
+        }
+        setTimeout(poll, CAPTION_CAPTURE_POLL_MS);
+      };
+      poll();
+    });
+  }
+
+  // YouTube 只在第一次真正渲染 CC 时请求字幕正文。刚打开视频、但 CC 已经
+  // 打开的情况下，页面可能还没有任何 timedtext 请求；此时 player response
+  // 里的 baseUrl 又可能因为缺少会话令牌而返回空正文。只重新加载当前轨，
+  // 不改变用户选择的语言或 CC 开关，等播放器自己发出可复用的请求地址。
+  document.addEventListener(CAPTION_PREPARE_REQUEST_EVENT, (event) => {
+    let request = null;
+    try { request = JSON.parse(String(event.detail || "")); } catch (error) {}
+    const id = currentVideoId();
+    if (!request?.requestId || request.videoId !== id) return;
+    const respond = (trackUrl) => {
+      document.dispatchEvent(new CustomEvent(CAPTION_PREPARE_RESPONSE_EVENT, {
+        detail: JSON.stringify({
+          requestId: String(request.requestId),
+          videoId: id,
+          trackUrl: String(trackUrl || ""),
+        }),
+      }));
+    };
+    const activeTrack = currentCaptionTrack() || request.activeCaptionTrack || null;
+    const existing = capturedCaptionTrackUrl(activeTrack, id);
+    if (existing) {
+      respond(existing);
+      return;
+    }
+    try {
+      document.getElementById("movie_player")?.setOption?.("captions", "reload", true);
+    } catch (error) {
+      // 播放器尚未准备好时继续轮询；下一次请求仍可使用静态 track 兜底。
+    }
+    void waitForCapturedCaptionUrl(id, activeTrack).then(respond);
+  });
 
   document.addEventListener(CAPTION_REQUEST_EVENT, (event) => {
     let request = null;
@@ -342,7 +375,9 @@
         videoId,
         playerResponse,
         activeCaptionTrack,
-        activeCaptionTrackUrl: currentCaptionTrackUrl(playerResponse, activeCaptionTrack),
+        // 这里只返回播放器实际请求过的地址。player response 的静态 baseUrl
+        // 不带会话令牌，不能伪装成页面会话地址交给正文请求。
+        activeCaptionTrackUrl: capturedCaptionTrackUrl(activeCaptionTrack, videoId),
         captionTrackUrls: capturedCaptionUrls.get(videoId) || [],
         captionBodies: capturedCaptionBodies.get(videoId) || [],
         captionTrackUrl: (() => {

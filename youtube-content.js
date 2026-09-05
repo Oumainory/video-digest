@@ -8,12 +8,15 @@
   const PLAYER_RESPONSE_EVENT = "video-digest:player-response";
   const PAGE_CAPTION_REQUEST_EVENT = "video-digest:request-page-caption";
   const PAGE_CAPTION_RESPONSE_EVENT = "video-digest:page-caption";
+  const CAPTION_PREPARE_REQUEST_EVENT = "video-digest:prepare-page-caption";
+  const CAPTION_PREPARE_RESPONSE_EVENT = "video-digest:page-caption-ready";
   let bridgedPlayerResponse = null;
   let activeCaptionTrack = null;
   let activeCaptionTrackUrl = "";
   const capturedCaptionUrls = new Map();
   const capturedCaptionBodies = new Map();
   const pendingPageCaptionRequests = new Map();
+  const pendingCaptionTrackRequests = new Map();
   const PLAYER_BUTTON_SELECTORS = [
     ".ytp-right-controls",
     "ytd-watch-metadata #actions-inner",
@@ -130,6 +133,19 @@
     }
   });
 
+  document.addEventListener(CAPTION_PREPARE_RESPONSE_EVENT, (event) => {
+    try {
+      const payload = JSON.parse(String(event.detail || ""));
+      const pending = pendingCaptionTrackRequests.get(String(payload.requestId || ""));
+      if (!pending || payload.videoId !== videoId()) return;
+      pendingCaptionTrackRequests.delete(String(payload.requestId));
+      try { clearTimeout(pending.timeout); } catch (error) {}
+      pending.resolve(String(payload.trackUrl || ""));
+    } catch (error) {
+      // 页面导航过程中可能收到不完整的事件，等待超时路径即可。
+    }
+  });
+
   function requestBridgedPlayerResponse() {
     const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     document.dispatchEvent(new CustomEvent(PLAYER_REQUEST_EVENT, { detail: requestId }));
@@ -200,12 +216,13 @@
         || base.searchParams.get("v") !== id
       ) return null;
 
-      const candidates = [base];
+      const candidates = [];
       if (base.searchParams.get("fmt") !== "json3") {
         const json3 = new URL(base);
         json3.searchParams.set("fmt", "json3");
         candidates.push(json3);
       }
+      candidates.push(base);
       for (const url of candidates) {
         const response = await globalThis.fetch(url.toString(), {
           credentials: "include",
@@ -241,6 +258,21 @@
     });
   }
 
+  function requestCaptionTrackFromPage(id) {
+    if (!id) return Promise.resolve("");
+    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        pendingCaptionTrackRequests.delete(requestId);
+        resolve("");
+      }, 3500);
+      pendingCaptionTrackRequests.set(requestId, { resolve, timeout });
+      document.dispatchEvent(new CustomEvent(CAPTION_PREPARE_REQUEST_EVENT, {
+        detail: JSON.stringify({ requestId, videoId: id, activeCaptionTrack }),
+      }));
+    });
+  }
+
   function readVideoInfo() {
     const video = videoElement();
     const title = document.querySelector("h1.ytd-watch-metadata yt-formatted-string")
@@ -271,6 +303,11 @@
     if (!hasCaptionTracks(responseData)) {
       const fetched = await fetchWatchPlayerResponse(id);
       if (fetched) responseData = fetched;
+    }
+    // YouTube 会延迟请求 timedtext。没有捕获到页面实际请求地址时，先让
+    // 播放器重新加载当前 CC 轨，等带会话令牌的地址出现，再读取完整正文。
+    if (!activeCaptionTrackUrl && activeCaptionTrack) {
+      activeCaptionTrackUrl = await requestCaptionTrackFromPage(id);
     }
     // 运行时播放器已经为字幕轨补齐了会话参数时，先在页面世界读取一次完整
     // 正文。直接用播放器所在会话请求，避免扩展上下文拿到 200 但空正文，或
