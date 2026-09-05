@@ -6,7 +6,7 @@ Video Digest 是一款面向视频学习的浏览器扩展与 Windows 桌面伴�
 
 ## 功能
 
-- Bilibili / YouTube 官方字幕读取、搜索、时间戳跳转和双语展示；YouTube 可选使用 Supadata 原生字幕兜底
+- Bilibili / YouTube 官方字幕读取、搜索、时间戳跳转和双语展示；YouTube 可选择播放器直连或 Supadata 原生字幕
 - 视频学习总结、问答、划词解释和时间戳笔记
 - 本地音频 ASR
 - 本地视频硬字幕 OCR
@@ -19,7 +19,7 @@ Video Digest 是一款面向视频学习的浏览器扩展与 Windows 桌面伴�
 
 ## 产品边界
 
-扩展不会对网页视频执行 OCR/ASR，也不会通过网页抓取视频音频。在线平台只使用平台官方字幕；YouTube 可在设置页配置 Supadata 的 `mode=native` 接口作为字幕获取兜底，不会请求 AI 生成字幕。本地文件识别通过用户主动打开的桌面伴生程序执行。
+扩展不会对网页视频执行 OCR/ASR，也不会通过网页抓取视频音频。在线平台只使用平台官方字幕。YouTube 字幕来源可在设置页二选一：YouTube 官方字幕从当前播放器会话直连，不需要额外密钥；Supadata 使用 `mode=native` 接口从服务端获取已有字幕，需要 Supadata API Key 和配额，不会请求 AI 生成字幕。本地文件识别通过用户主动打开的桌面伴生程序执行。
 
 ```text
 浏览器扩展

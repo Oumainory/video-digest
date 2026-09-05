@@ -40,6 +40,7 @@ function createBackground({
   youtubeCaptionEntries = [
     { text: "captured subtitle", start: 1, duration: 1.2 },
   ],
+  youtubeTranscriptProvider = "youtube",
   supadataApiKey = "",
   supadataResponse = null,
   companionPort = null,
@@ -55,12 +56,14 @@ function createBackground({
       aiModel: "test-model",
       aiConcurrency: 1,
       aiTimeoutSeconds: 30,
+      youtubeTranscriptProvider,
     };
   }
-  if (supadataApiKey) {
+  if (supadataApiKey || youtubeTranscriptProvider !== "youtube") {
     storage.data[SETTINGS.STORAGE_KEY] = {
       ...(storage.data[SETTINGS.STORAGE_KEY] || {}),
-      supadataApiKey,
+      youtubeTranscriptProvider,
+      ...(supadataApiKey ? { supadataApiKey } : {}),
     };
   }
   const cacheStore = {};
@@ -613,10 +616,11 @@ test("YouTube 同一字幕轨的多次会话响应合并成完整字幕", async 
   assert.equal(result.transcript.map((entry) => entry.text).join("|"), "开头字幕|后续字幕");
 });
 
-test("配置 Supadata 后优先使用上游同款原生字幕并保留开头片段", async () => {
+test("选择 Supadata 后使用上游同款原生字幕并保留开头片段", async () => {
   const id = "dQw4w9WgXcQ";
   const trackUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=zh-Hans&kind=asr`;
   const ctx = createBackground({
+    youtubeTranscriptProvider: "supadata",
     supadataApiKey: "supadata-test-key",
     supadataResponse: {
       lang: "zh",
@@ -660,10 +664,11 @@ test("配置 Supadata 后优先使用上游同款原生字幕并保留开头片�
   assert.equal(new URL(ctx.supadataRequests[0].url).searchParams.get("mode"), "native");
 });
 
-test("Supadata 暂时失败时退回现有 YouTube 官方字幕链路", async () => {
+test("选择 Supadata 且请求失败时不悄悄切换到 YouTube", async () => {
   const id = "dQw4w9WgXcQ";
   const trackUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en`;
   const ctx = createBackground({
+    youtubeTranscriptProvider: "supadata",
     supadataApiKey: "supadata-test-key",
     supadataResponse: { status: 503, body: { message: "temporarily unavailable" } },
     youtubeCaptionEntries: [{ text: "浏览器官方字幕回退", start: 2, duration: 1 }],
@@ -682,11 +687,30 @@ test("Supadata 暂时失败时退回现有 YouTube 官方字幕链路", async ()
     },
   });
 
-  assert.equal(result.success, true, JSON.stringify(result));
-  assert.equal(result.transcriptSource, "youtube-native");
-  assert.equal(result.transcript[0].text, "浏览器官方字幕回退");
+  assert.equal(result.success, false, JSON.stringify(result));
+  assert.equal(result.error, "SUPADATA_REQUEST_FAILED");
   assert.equal(ctx.supadataRequests.length, 1);
-  assert.deepEqual(ctx.youtubeCaptionRequests, [trackUrl]);
+  assert.deepEqual(ctx.youtubeCaptionRequests, []);
+});
+
+test("选择 Supadata 但没有密钥时给出设置提示，不请求 YouTube", async () => {
+  const id = "dQw4w9WgXcQ";
+  const trackUrl = `https://www.youtube.com/api/timedtext?v=${id}&lang=en`;
+  const ctx = createBackground({
+    youtubeTranscriptProvider: "supadata",
+    youtubeCaptionEntries: [{ text: "不应读取", start: 1, duration: 1 }],
+  });
+  const result = await ctx.send({
+    action: "fetchYoutubeTranscript",
+    videoId: id,
+    captionTrackUrl: trackUrl,
+    playerResponse: { videoDetails: { videoId: id } },
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.error, "NO_SUPADATA_KEY");
+  assert.match(result.message, /设置页/);
+  assert.deepEqual(ctx.youtubeCaptionRequests, []);
 });
 
 test("后台把桌面操作映射到 Native Messaging，并转发任务事件", async () => {

@@ -8,6 +8,11 @@ var BILI_SETTINGS = (() => {
     ANTHROPIC: "anthropic",
   });
 
+  const YOUTUBE_TRANSCRIPT_PROVIDERS = Object.freeze({
+    YOUTUBE: "youtube",
+    SUPADATA: "supadata",
+  });
+
   // 只预置 protocol 和 baseUrl；model 故意留空——模型名换代很快，
   // 写死等于埋一个过期默认值，设置页有「拉取模型列表」兜底。
   const PRESETS = Object.freeze([
@@ -123,7 +128,8 @@ var BILI_SETTINGS = (() => {
     presetId: DEFAULT_PRESET.id,
     protocol: DEFAULT_PRESET.protocol,
     aiApiKey: "",
-    // 可选的 YouTube 原生字幕服务。没有配置时继续使用页面官方字幕直连。
+    youtubeTranscriptProvider: YOUTUBE_TRANSCRIPT_PROVIDERS.YOUTUBE,
+    // Supadata 仅在上面的来源明确选择后使用。
     supadataApiKey: "",
     aiBaseUrl: DEFAULT_PRESET.baseUrl,
     aiModel: DEFAULT_PRESET.model,
@@ -293,6 +299,11 @@ var BILI_SETTINGS = (() => {
       presetId: preset.id,
       protocol,
       aiApiKey: typeof source.aiApiKey === "string" ? source.aiApiKey.trim() : "",
+      youtubeTranscriptProvider: Object.values(YOUTUBE_TRANSCRIPT_PROVIDERS).includes(
+        source.youtubeTranscriptProvider,
+      )
+        ? source.youtubeTranscriptProvider
+        : DEFAULTS.youtubeTranscriptProvider,
       supadataApiKey:
         typeof source.supadataApiKey === "string" ? source.supadataApiKey.trim() : "",
       aiBaseUrl: checked.ok ? checked.url : rawBaseUrl,
@@ -344,6 +355,7 @@ var BILI_SETTINGS = (() => {
   return {
     STORAGE_KEY,
     PROTOCOLS,
+    YOUTUBE_TRANSCRIPT_PROVIDERS,
     PRESETS,
     CUSTOM_PRESET_ID,
     DEFAULTS,

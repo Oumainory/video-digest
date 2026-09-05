@@ -617,8 +617,9 @@ if (chrome.action?.onClicked?.addListener) {
 // 消息路由
 // ============================================================
 
-// YouTube 只读页面本身已经提供的官方 caption track。内容脚本负责从页面
-// 取 player response，service worker 负责下载正文并复用现有的分段逻辑。
+// YouTube 默认读取页面本身提供的官方 caption track；用户也可以在设置页
+// 明确选择 Supadata 原生字幕。内容脚本负责提供页面上下文，service worker
+// 负责下载正文并复用现有的分段逻辑。
 function buildYoutubeTranscriptResult({
   youtubeId,
   entries,
@@ -698,6 +699,10 @@ async function handleYoutubeTranscript(message = {}) {
   ].filter(Boolean);
   const capturedBodies = Array.isArray(message.captionBodies) ? message.captionBodies : [];
   const settings = await getSettings();
+  const transcriptProvider = settings.youtubeTranscriptProvider === "supadata"
+    ? "supadata"
+    : "youtube";
+  const useSupadata = transcriptProvider === "supadata";
   const preference = Array.isArray(message.languagePreference) && message.languagePreference.length
     ? message.languagePreference
     : settings.subtitleLangPreference;
@@ -712,8 +717,9 @@ async function handleYoutubeTranscript(message = {}) {
   );
   if (!message.forceRefresh) {
     const cached = await BILI_CACHE.load(sourceId, { page });
-    const canUseCachedSource = !settings.supadataApiKey
-      || cached?.transcriptSource === "supadata-native";
+    const expectedTranscriptSource = useSupadata ? "supadata-native" : "youtube-native";
+    const cachedTranscriptSource = cached?.transcriptSource || "youtube-native";
+    const canUseCachedSource = cachedTranscriptSource === expectedTranscriptSource;
     if (cached?.transcript?.length && !hasCurrentPageEvidence && canUseCachedSource) {
       return { ...cached, success: true, fromCache: true };
     }
@@ -729,7 +735,7 @@ async function handleYoutubeTranscript(message = {}) {
   if (
     (!message.playerResponse || typeof message.playerResponse !== "object")
     && !capturedTracks.length
-    && !settings.supadataApiKey
+    && !useSupadata
   ) {
     return {
       success: false,
@@ -744,12 +750,18 @@ async function handleYoutubeTranscript(message = {}) {
   );
   if (!tracks.length && capturedTracks.length) tracks.push(...capturedTracks);
 
-  let supadataError = null;
   const supadataLanguage = activeCaptionTrack?.tlang
     || activeCaptionTrack?.languageCode
     || preference[0]
     || "en";
-  if (settings.supadataApiKey && !tracks.length) {
+  if (useSupadata && !settings.supadataApiKey) {
+    return {
+      success: false,
+      error: "NO_SUPADATA_KEY",
+      message: "已选择 Supadata 字幕，但尚未配置 API Key。请到设置页填写后重试。",
+    };
+  }
+  if (useSupadata) {
     try {
       return await fetchSupadataYoutubeTranscript({
         youtubeId,
@@ -762,14 +774,18 @@ async function handleYoutubeTranscript(message = {}) {
         activeCaptionTrack,
       });
     } catch (error) {
-      supadataError = error;
+      return {
+        success: false,
+        error: error?.code || "SUPADATA_REQUEST_FAILED",
+        message: error?.message || "Supadata 字幕请求失败，请重试。",
+      };
     }
   }
   if (!tracks.length) {
     return {
       success: false,
-      error: supadataError?.code || "NO_SUBTITLE",
-      message: supadataError?.message || "这个 YouTube 视频没有可用的官方字幕。",
+      error: "NO_SUBTITLE",
+      message: "这个 YouTube 视频没有可用的官方字幕。",
     };
   }
   const activeTrack = activeCaptionTrack && [...tracks].sort((left, right) => {
@@ -814,25 +830,6 @@ async function handleYoutubeTranscript(message = {}) {
   // 播放器实际选中的字幕轨优先于默认语言偏好；这样同为 zh-Hans 时不会误取
   // 另一条人工/自动/翻译轨，导致播放器和扩展的开头内容不一致。
   const preferredTrack = activeTrack || VIDEO_DIGEST_YOUTUBE.pickCaptionTrack(tracks, preference);
-
-  // 配置 Supadata 后采用上游 youtube-digest 的原生字幕链路。它从服务端
-  // 获取完整字幕，绕过浏览器 timedtext 会话参数缺失导致的空正文/开头缺失。
-  if (settings.supadataApiKey) {
-    try {
-      return await fetchSupadataYoutubeTranscript({
-        youtubeId,
-        settings,
-        language: preferredTrack?.effectiveLang || preferredTrack?.lang || supadataLanguage,
-        playerResponse: message.playerResponse,
-        sourceUrl: message.sourceUrl,
-        pageInfo: message.pageInfo,
-        tracks,
-        activeCaptionTrack,
-      });
-    } catch (error) {
-      supadataError = error;
-    }
-  }
 
   // playerResponse 里的 baseUrl 可能缺少当前播放会话动态附加的参数，表现为
   // HTTP 200 但正文为空。页面播放器实际请求过的 timedtext URL 已经过同视频

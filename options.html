@@ -13,13 +13,23 @@
       <h2>字幕</h2>
       <p class="hint">
         B 站字幕由网站官方接口提供，<strong>无需配置密钥</strong>。
-        YouTube 默认读取播放器提供的官方字幕；如果遇到字幕正文为空、开头缺失或加载不完整，
-        可以配置 Supadata 作为 YouTube 原生字幕兜底。Supadata 只读取已有字幕，不生成 AI 字幕。
+        YouTube 字幕可以在下面选择获取方式。Supadata 只读取已有字幕，不生成 AI 字幕。
       </p>
+      <label class="field">
+        <span class="field-label">YouTube 字幕来源</span>
+        <select id="youtubeTranscriptProvider">
+          <option value="youtube">YouTube 官方字幕（浏览器直连）</option>
+          <option value="supadata">Supadata 原生字幕（服务端获取）</option>
+        </select>
+        <span class="field-hint">
+          YouTube 官方字幕：不需要密钥或额外配额，但受当前播放器会话、登录状态和字幕轨影响。
+          Supadata：把视频地址发送到 Supadata 获取原生字幕，需要 API Key 并消耗配额，适合官方字幕正文为空或不完整的情况。
+        </span>
+      </label>
       <label class="field">
         <span class="field-label">Supadata API Key（可选）</span>
         <input id="supadataApiKey" type="password" autocomplete="off" spellcheck="false"
-               placeholder="配置后优先使用 Supadata 获取 YouTube 原生字幕">
+               placeholder="仅选择 Supadata 时需要">
         <span class="field-hint">
           密钥只保存于本机，并仅发送至 Supadata。每次字幕请求会消耗 Supadata 配额；
           <a href="https://dash.supadata.ai/auth/sign-up" target="_blank" rel="noreferrer">获取 Supadata 密钥 →</a>

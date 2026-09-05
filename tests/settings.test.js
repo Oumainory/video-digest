@@ -170,6 +170,25 @@ test("默认配置是 DeepSeek，且模型名是实测验证过的那个", () =>
   assert.equal(normalized.aiModel, "deepseek-v4-flash");
 });
 
+test("YouTube 字幕来源默认直连，并只接受 YouTube 或 Supadata", () => {
+  assert.equal(
+    settings.normalize({}).youtubeTranscriptProvider,
+    settings.YOUTUBE_TRANSCRIPT_PROVIDERS.YOUTUBE,
+  );
+  assert.equal(
+    settings.normalize({ youtubeTranscriptProvider: "supadata" }).youtubeTranscriptProvider,
+    settings.YOUTUBE_TRANSCRIPT_PROVIDERS.SUPADATA,
+  );
+  assert.equal(
+    settings.normalize({ youtubeTranscriptProvider: "unknown" }).youtubeTranscriptProvider,
+    settings.YOUTUBE_TRANSCRIPT_PROVIDERS.YOUTUBE,
+  );
+  assert.equal(
+    settings.normalize({ supadataApiKey: "  supa-key  " }).supadataApiKey,
+    "supa-key",
+  );
+});
+
 test("用户自定义的地址与模型会被保留，不再被强制覆盖", () => {
   const normalized = settings.normalize({
     presetId: "custom",

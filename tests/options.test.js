@@ -47,9 +47,10 @@ async function createContext() {
   const permissionRequests = [];
   const sent = [];
   const downloads = [];
+  const storageWrites = [];
   const byId = (id) => {
     if (!elements.has(id)) {
-      const tag = id === "preset" || id === "protocol"
+      const tag = id === "preset" || id === "protocol" || id === "youtubeTranscriptProvider"
         ? "select"
         : id.endsWith("Btn")
           ? "button"
@@ -99,7 +100,7 @@ async function createContext() {
               aiModel: "already-filled-model",
             },
           }),
-          set: async () => {},
+          set: async (value) => storageWrites.push(value),
         },
       },
       runtime: {
@@ -144,11 +145,11 @@ async function createContext() {
 
   const source = fs.readFileSync(path.join(ROOT, "options.js"), "utf8");
   vm.runInContext(
-    `${source}\n;globalThis.__api = { fetchModels, clearModelOptions, exportBackup };`,
+    `${source}\n;globalThis.__api = { fetchModels, clearModelOptions, exportBackup, saveSubtitleSettings };`,
     context,
   );
   await new Promise((resolve) => setImmediate(resolve));
-  return { ...context.__api, el: byId, permissionRequests, sent, downloads };
+  return { ...context.__api, el: byId, permissionRequests, sent, downloads, storageWrites };
 }
 
 test("模型列表使用可交互筛选框与自定义列表，不依赖原生 select 下拉菜单", () => {
@@ -165,6 +166,28 @@ test("设置页提供自动、较短、较长三档概览分块模式", () => {
   for (const value of ["auto", "short", "long"]) {
     assert.match(html, new RegExp(`value=["']${value}["']`));
   }
+});
+
+test("设置页说明并允许选择 YouTube 官方字幕或 Supadata", () => {
+  const html = fs.readFileSync(path.join(ROOT, "options.html"), "utf8");
+  assert.match(html, /id=["']youtubeTranscriptProvider["']/);
+  assert.match(html, /YouTube 官方字幕/);
+  assert.match(html, /Supadata 原生字幕/);
+  assert.match(html, /不需要密钥或额外配额/);
+  assert.match(html, /需要 API Key 并消耗配额/);
+});
+
+test("字幕设置同时保存来源选择和 Supadata 密钥", async () => {
+  const ctx = await createContext();
+  ctx.el("youtubeTranscriptProvider").value = "supadata";
+  ctx.el("supadataApiKey").value = "supa-test-key";
+
+  await ctx.saveSubtitleSettings();
+
+  const saved = ctx.storageWrites.at(-1).bili_digest_settings;
+  assert.equal(saved.youtubeTranscriptProvider, "supadata");
+  assert.equal(saved.supadataApiKey, "supa-test-key");
+  assert.match(ctx.el("subtitleStatus").textContent, /Supadata/);
 });
 
 test("设置页用数字自调界面字号，不必走保存并授权", () => {
